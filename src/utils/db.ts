@@ -1,3 +1,4 @@
+import { sqlExec, sqlQuery } from './sql-adapter';
 import { InwardItem, OutwardEntry, WastageEntry, CustomItem, StorageLocation, ArchivedRecord, Volunteer } from '../types';
 
 const esc = (s: string) => s.replace(/'/g, "''");
@@ -7,7 +8,7 @@ const esc = (s: string) => s.replace(/'/g, "''");
 export async function initDB(): Promise<void> {
   // Core tables - one call each (SQLite requires separate CREATE TABLE statements)
   await Promise.all([
-    window.tasklet.sqlExec(`
+    sqlExec(`
       CREATE TABLE IF NOT EXISTS cf_inwards (
         id TEXT PRIMARY KEY,
         item TEXT NOT NULL,
@@ -22,7 +23,7 @@ export async function initDB(): Promise<void> {
         storage TEXT NOT NULL DEFAULT 'fridge'
       )
     `),
-    window.tasklet.sqlExec(`
+    sqlExec(`
       CREATE TABLE IF NOT EXISTS cf_outwards (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         inward_id TEXT NOT NULL,
@@ -33,7 +34,7 @@ export async function initDB(): Promise<void> {
         FOREIGN KEY (inward_id) REFERENCES cf_inwards(id)
       )
     `),
-    window.tasklet.sqlExec(`
+    sqlExec(`
       CREATE TABLE IF NOT EXISTS cf_wastage (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         inward_id TEXT NOT NULL,
@@ -45,27 +46,27 @@ export async function initDB(): Promise<void> {
         FOREIGN KEY (inward_id) REFERENCES cf_inwards(id)
       )
     `),
-    window.tasklet.sqlExec(`
+    sqlExec(`
       CREATE TABLE IF NOT EXISTS cf_counter (
         key TEXT PRIMARY KEY,
         value INTEGER NOT NULL DEFAULT 0
       )
     `),
-    window.tasklet.sqlExec(`
+    sqlExec(`
       CREATE TABLE IF NOT EXISTS cf_custom_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
         category TEXT NOT NULL DEFAULT 'Other'
       )
     `),
-    window.tasklet.sqlExec(`
+    sqlExec(`
       CREATE TABLE IF NOT EXISTS cf_volunteers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         initials TEXT NOT NULL UNIQUE
       )
     `),
-    window.tasklet.sqlExec(`
+    sqlExec(`
       CREATE TABLE IF NOT EXISTS cf_archive (
         id TEXT PRIMARY KEY,
         item TEXT NOT NULL,
@@ -86,22 +87,22 @@ export async function initDB(): Promise<void> {
   ]);
 
   // Seed counter
-  await window.tasklet.sqlExec(`INSERT OR IGNORE INTO cf_counter (key, value) VALUES ('next_id', 1)`);
+  await sqlExec(`INSERT OR IGNORE INTO cf_counter (key, value) VALUES ('next_id', 1)`);
 
   // Migrations - run in parallel, failures are expected
   await Promise.allSettled([
-    window.tasklet.sqlExec(`ALTER TABLE cf_inwards ADD COLUMN storage TEXT NOT NULL DEFAULT 'fridge'`),
-    window.tasklet.sqlExec(`ALTER TABLE cf_inwards ADD COLUMN entered_by TEXT NOT NULL DEFAULT ''`),
-    window.tasklet.sqlExec(`ALTER TABLE cf_wastage ADD COLUMN reported_by TEXT NOT NULL DEFAULT ''`),
+    sqlExec(`ALTER TABLE cf_inwards ADD COLUMN storage TEXT NOT NULL DEFAULT 'fridge'`),
+    sqlExec(`ALTER TABLE cf_inwards ADD COLUMN entered_by TEXT NOT NULL DEFAULT ''`),
+    sqlExec(`ALTER TABLE cf_wastage ADD COLUMN reported_by TEXT NOT NULL DEFAULT ''`),
   ]);
 }
 
 // ========== ID GENERATION ==========
 
 async function getNextIdBatch(count: number): Promise<string[]> {
-  const rows = await window.tasklet.sqlQuery(`SELECT value FROM cf_counter WHERE key = 'next_id'`);
+  const rows = await sqlQuery(`SELECT value FROM cf_counter WHERE key = 'next_id'`);
   const start = (rows[0]?.value as number) || 1;
-  await window.tasklet.sqlExec(`UPDATE cf_counter SET value = ${start + count} WHERE key = 'next_id'`);
+  await sqlExec(`UPDATE cf_counter SET value = ${start + count} WHERE key = 'next_id'`);
   return Array.from({ length: count }, (_, i) => `CF-${String(start + i).padStart(3, '0')}`);
 }
 
@@ -121,7 +122,7 @@ export async function addInward(
   const dateIn = now.toLocaleDateString('en-GB');
   const timeIn = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-  await window.tasklet.sqlExec(`
+  await sqlExec(`
     INSERT INTO cf_inwards (id, item, category, qty_in, unit, date_in, time_in, donor, entered_by, best_before, storage)
     VALUES ('${esc(id)}', '${esc(item)}', '${esc(category)}', ${qtyIn}, '${esc(unit)}', '${esc(dateIn)}', '${esc(timeIn)}', '${esc(donor)}', '${esc(enteredBy)}', '${esc(bestBefore)}', '${esc(storage)}')
   `);
@@ -129,7 +130,7 @@ export async function addInward(
 }
 
 export async function loadInwards(): Promise<InwardItem[]> {
-  const rows = await window.tasklet.sqlQuery(`
+  const rows = await sqlQuery(`
     SELECT
       i.*,
       COALESCE((SELECT SUM(o.qty_taken) FROM cf_outwards o WHERE o.inward_id = i.id), 0) as total_taken,
@@ -173,14 +174,14 @@ export async function addOutward(inwardId: string, qtyTaken: number, takenBy: st
   const now = new Date();
   const dateTaken = now.toLocaleDateString('en-GB');
   const timeTaken = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  await window.tasklet.sqlExec(`
+  await sqlExec(`
     INSERT INTO cf_outwards (inward_id, qty_taken, date_taken, time_taken, taken_by)
     VALUES ('${esc(inwardId)}', ${qtyTaken}, '${esc(dateTaken)}', '${esc(timeTaken)}', '${esc(takenBy)}')
   `);
 }
 
 export async function loadOutwards(): Promise<OutwardEntry[]> {
-  const rows = await window.tasklet.sqlQuery(`
+  const rows = await sqlQuery(`
     SELECT o.*, COALESCE(i.item, o.inward_id) as item, COALESCE(i.category, 'Other') as category, COALESCE(i.storage, 'fridge') as storage
     FROM cf_outwards o
     LEFT JOIN cf_inwards i ON o.inward_id = i.id
@@ -204,14 +205,14 @@ export async function loadOutwards(): Promise<OutwardEntry[]> {
 export async function addWastage(inwardId: string, qtyWasted: number, reason: string, reportedBy: string, notes: string): Promise<void> {
   const now = new Date();
   const dateWasted = now.toLocaleDateString('en-GB');
-  await window.tasklet.sqlExec(`
+  await sqlExec(`
     INSERT INTO cf_wastage (inward_id, qty_wasted, reason, date_wasted, reported_by, notes)
     VALUES ('${esc(inwardId)}', ${qtyWasted}, '${esc(reason)}', '${esc(dateWasted)}', '${esc(reportedBy)}', '${esc(notes)}')
   `);
 }
 
 export async function loadWastage(): Promise<WastageEntry[]> {
-  const rows = await window.tasklet.sqlQuery(`
+  const rows = await sqlQuery(`
     SELECT w.*, COALESCE(i.item, w.inward_id) as item, COALESCE(i.category, 'Other') as category, COALESCE(i.storage, 'fridge') as storage
     FROM cf_wastage w
     LEFT JOIN cf_inwards i ON w.inward_id = i.id
@@ -234,26 +235,26 @@ export async function loadWastage(): Promise<WastageEntry[]> {
 // ========== DELETE OPERATIONS ==========
 
 export async function deleteOutward(id: number): Promise<void> {
-  await window.tasklet.sqlExec(`DELETE FROM cf_outwards WHERE id = ${id}`);
+  await sqlExec(`DELETE FROM cf_outwards WHERE id = ${id}`);
 }
 
 export async function deleteWastage(id: number): Promise<void> {
-  await window.tasklet.sqlExec(`DELETE FROM cf_wastage WHERE id = ${id}`);
+  await sqlExec(`DELETE FROM cf_wastage WHERE id = ${id}`);
 }
 
 export async function deleteInward(id: string): Promise<void> {
   // Batch deletes in parallel
   await Promise.all([
-    window.tasklet.sqlExec(`DELETE FROM cf_outwards WHERE inward_id = '${esc(id)}'`),
-    window.tasklet.sqlExec(`DELETE FROM cf_wastage WHERE inward_id = '${esc(id)}'`),
+    sqlExec(`DELETE FROM cf_outwards WHERE inward_id = '${esc(id)}'`),
+    sqlExec(`DELETE FROM cf_wastage WHERE inward_id = '${esc(id)}'`),
   ]);
-  await window.tasklet.sqlExec(`DELETE FROM cf_inwards WHERE id = '${esc(id)}'`);
+  await sqlExec(`DELETE FROM cf_inwards WHERE id = '${esc(id)}'`);
 }
 
 // ========== CUSTOM ITEMS ==========
 
 export async function loadCustomItems(): Promise<CustomItem[]> {
-  const rows = await window.tasklet.sqlQuery(`SELECT * FROM cf_custom_items ORDER BY name ASC`);
+  const rows = await sqlQuery(`SELECT * FROM cf_custom_items ORDER BY name ASC`);
   return rows.map((r: Record<string, unknown>) => ({
     id: r.id as number,
     name: r.name as string,
@@ -266,11 +267,11 @@ const capitalise = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
 export async function addCustomItem(name: string, category: string): Promise<void> {
   const capName = capitalise(name.trim());
   const capCat = capitalise(category.trim());
-  await window.tasklet.sqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) VALUES ('${esc(capName)}', '${esc(capCat)}')`);
+  await sqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) VALUES ('${esc(capName)}', '${esc(capCat)}')`);
 }
 
 export async function deleteCustomItem(id: number): Promise<void> {
-  await window.tasklet.sqlExec(`DELETE FROM cf_custom_items WHERE id = ${id}`);
+  await sqlExec(`DELETE FROM cf_custom_items WHERE id = ${id}`);
 }
 
 // Import custom items - BATCHED (1 call to delete + 1 call per 20 items)
@@ -291,14 +292,14 @@ export async function importCustomItems(csv: string): Promise<number> {
 
   if (items.length === 0) return 0;
 
-  await window.tasklet.sqlExec(`DELETE FROM cf_custom_items`);
+  await sqlExec(`DELETE FROM cf_custom_items`);
 
   // Batch inserts - 20 items per call using INSERT SELECT UNION ALL
   const BATCH = 20;
   for (let i = 0; i < items.length; i += BATCH) {
     const chunk = items.slice(i, i + BATCH);
     const values = chunk.map(it => `SELECT '${esc(it.name)}', '${esc(it.category)}'`).join(' UNION ALL ');
-    await window.tasklet.sqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) ${values}`);
+    await sqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) ${values}`);
   }
 
   return items.length;
@@ -307,7 +308,7 @@ export async function importCustomItems(csv: string): Promise<number> {
 // ========== VOLUNTEERS ==========
 
 export async function loadVolunteers(): Promise<Volunteer[]> {
-  const rows = await window.tasklet.sqlQuery(`SELECT * FROM cf_volunteers ORDER BY name ASC`);
+  const rows = await sqlQuery(`SELECT * FROM cf_volunteers ORDER BY name ASC`);
   return rows.map((r: Record<string, unknown>) => ({
     id: r.id as number,
     name: r.name as string,
@@ -319,11 +320,11 @@ export async function addVolunteer(name: string, initials: string): Promise<void
   const capName = capitalise(name.trim());
   const capInit = initials.trim().toUpperCase();
   if (!capName || !capInit) return;
-  await window.tasklet.sqlExec(`INSERT OR IGNORE INTO cf_volunteers (name, initials) VALUES ('${esc(capName)}', '${esc(capInit)}')`);
+  await sqlExec(`INSERT OR IGNORE INTO cf_volunteers (name, initials) VALUES ('${esc(capName)}', '${esc(capInit)}')`);
 }
 
 export async function deleteVolunteer(id: number): Promise<void> {
-  await window.tasklet.sqlExec(`DELETE FROM cf_volunteers WHERE id = ${id}`);
+  await sqlExec(`DELETE FROM cf_volunteers WHERE id = ${id}`);
 }
 
 export async function importVolunteers(csv: string): Promise<number> {
@@ -346,13 +347,13 @@ export async function importVolunteers(csv: string): Promise<number> {
 
   if (items.length === 0) return 0;
 
-  await window.tasklet.sqlExec(`DELETE FROM cf_volunteers`);
+  await sqlExec(`DELETE FROM cf_volunteers`);
 
   const BATCH = 20;
   for (let i = 0; i < items.length; i += BATCH) {
     const chunk = items.slice(i, i + BATCH);
     const values = chunk.map(it => `('${esc(it.name)}', '${esc(it.initials)}')`).join(',\n');
-    await window.tasklet.sqlExec(`INSERT OR IGNORE INTO cf_volunteers (name, initials) VALUES ${values}`);
+    await sqlExec(`INSERT OR IGNORE INTO cf_volunteers (name, initials) VALUES ${values}`);
   }
 
   return items.length;
@@ -362,7 +363,7 @@ export async function importVolunteers(csv: string): Promise<number> {
 
 export async function archiveCompletedItems(): Promise<number> {
   // Find completed items
-  const rows = await window.tasklet.sqlQuery(`
+  const rows = await sqlQuery(`
     SELECT
       i.*,
       COALESCE((SELECT SUM(o.qty_taken) FROM cf_outwards o WHERE o.inward_id = i.id), 0) as total_taken,
@@ -378,8 +379,8 @@ export async function archiveCompletedItems(): Promise<number> {
 
   // Fetch all related outwards and wastage in 2 bulk queries instead of 2 per item
   const [allOut, allWast] = await Promise.all([
-    window.tasklet.sqlQuery(`SELECT * FROM cf_outwards WHERE inward_id IN (${ids})`),
-    window.tasklet.sqlQuery(`SELECT * FROM cf_wastage WHERE inward_id IN (${ids})`),
+    sqlQuery(`SELECT * FROM cf_outwards WHERE inward_id IN (${ids})`),
+    sqlQuery(`SELECT * FROM cf_wastage WHERE inward_id IN (${ids})`),
   ]);
 
   // Group by inward_id
@@ -394,7 +395,7 @@ export async function archiveCompletedItems(): Promise<number> {
     const outJson = JSON.stringify(outByItem[id] || []).replace(/'/g, "''");
     const wastJson = JSON.stringify(wastByItem[id] || []).replace(/'/g, "''");
 
-    await window.tasklet.sqlExec(`
+    await sqlExec(`
       INSERT OR REPLACE INTO cf_archive (id, item, category, qty_in, unit, date_in, storage, donor, best_before, total_taken, total_wasted, archived_date, outwards_json, wastage_json)
       VALUES ('${esc(id)}', '${esc(r.item as string)}', '${esc(r.category as string)}', ${r.qty_in}, '${esc(r.unit as string)}', '${esc(r.date_in as string)}', '${esc((r.storage as string) || 'fridge')}', '${esc(r.donor as string)}', '${esc(r.best_before as string)}', ${r.total_taken}, ${r.total_wasted}, '${esc(now)}', '${outJson}', '${wastJson}')
     `);
@@ -402,16 +403,16 @@ export async function archiveCompletedItems(): Promise<number> {
 
   // Bulk delete from live tables (3 calls instead of 3 per item)
   await Promise.all([
-    window.tasklet.sqlExec(`DELETE FROM cf_outwards WHERE inward_id IN (${ids})`),
-    window.tasklet.sqlExec(`DELETE FROM cf_wastage WHERE inward_id IN (${ids})`),
+    sqlExec(`DELETE FROM cf_outwards WHERE inward_id IN (${ids})`),
+    sqlExec(`DELETE FROM cf_wastage WHERE inward_id IN (${ids})`),
   ]);
-  await window.tasklet.sqlExec(`DELETE FROM cf_inwards WHERE id IN (${ids})`);
+  await sqlExec(`DELETE FROM cf_inwards WHERE id IN (${ids})`);
 
   return rows.length;
 }
 
 export async function loadArchive(): Promise<ArchivedRecord[]> {
-  const rows = await window.tasklet.sqlQuery(`SELECT * FROM cf_archive ORDER BY archived_date DESC, id DESC`);
+  const rows = await sqlQuery(`SELECT * FROM cf_archive ORDER BY archived_date DESC, id DESC`);
   return rows.map((r: Record<string, unknown>) => ({
     id: r.id as string,
     item: r.item as string,
@@ -431,33 +432,33 @@ export async function loadArchive(): Promise<ArchivedRecord[]> {
 }
 
 export async function deleteArchiveItem(id: string): Promise<void> {
-  await window.tasklet.sqlExec(`DELETE FROM cf_archive WHERE id = '${esc(id)}'`);
+  await sqlExec(`DELETE FROM cf_archive WHERE id = '${esc(id)}'`);
 }
 
 // ========== CLEAR ALL (TEST MODE) ==========
 
 export async function clearAllData(): Promise<void> {
   await Promise.all([
-    window.tasklet.sqlExec(`DELETE FROM cf_outwards`),
-    window.tasklet.sqlExec(`DELETE FROM cf_wastage`),
-    window.tasklet.sqlExec(`DELETE FROM cf_inwards`),
-    window.tasklet.sqlExec(`UPDATE cf_counter SET value = 1 WHERE key = 'next_id'`),
+    sqlExec(`DELETE FROM cf_outwards`),
+    sqlExec(`DELETE FROM cf_wastage`),
+    sqlExec(`DELETE FROM cf_inwards`),
+    sqlExec(`UPDATE cf_counter SET value = 1 WHERE key = 'next_id'`),
   ]);
 }
 
 export async function clearArchive(): Promise<void> {
-  await window.tasklet.sqlExec(`DELETE FROM cf_archive`);
+  await sqlExec(`DELETE FROM cf_archive`);
 }
 
 export async function clearEverything(): Promise<void> {
   await Promise.all([
-    window.tasklet.sqlExec(`DELETE FROM cf_outwards`),
-    window.tasklet.sqlExec(`DELETE FROM cf_wastage`),
-    window.tasklet.sqlExec(`DELETE FROM cf_inwards`),
-    window.tasklet.sqlExec(`UPDATE cf_counter SET value = 1 WHERE key = 'next_id'`),
-    window.tasklet.sqlExec(`DELETE FROM cf_archive`),
-    window.tasklet.sqlExec(`DELETE FROM cf_custom_items`),
-    window.tasklet.sqlExec(`DELETE FROM cf_volunteers`),
+    sqlExec(`DELETE FROM cf_outwards`),
+    sqlExec(`DELETE FROM cf_wastage`),
+    sqlExec(`DELETE FROM cf_inwards`),
+    sqlExec(`UPDATE cf_counter SET value = 1 WHERE key = 'next_id'`),
+    sqlExec(`DELETE FROM cf_archive`),
+    sqlExec(`DELETE FROM cf_custom_items`),
+    sqlExec(`DELETE FROM cf_volunteers`),
   ]);
 }
 
@@ -521,7 +522,7 @@ export async function importInwardsFromCSV(csvText: string): Promise<number> {
       return `('${esc(id)}', '${esc(p.item)}', '${esc(p.category)}', ${p.qty}, '${esc(p.unit)}', '${esc(p.dateIn)}', '${esc(p.timeIn)}', '${esc(p.donor)}', '${esc(p.enteredBy)}', '${esc(p.bb)}', '${esc(p.stor)}')`;
     }).join(',\n');
 
-    await window.tasklet.sqlExec(`
+    await sqlExec(`
       INSERT OR REPLACE INTO cf_inwards (id, item, category, qty_in, unit, date_in, time_in, donor, entered_by, best_before, storage)
       VALUES ${values}
     `);
@@ -568,7 +569,7 @@ export async function importOutwardsFromCSV(csvText: string): Promise<number> {
       `('${esc(p.inwardId)}', ${p.qty}, '${esc(p.dateTaken)}', '${esc(p.timeTaken)}', '${esc(p.takenBy)}')`
     ).join(',\n');
 
-    await window.tasklet.sqlExec(`
+    await sqlExec(`
       INSERT INTO cf_outwards (inward_id, qty_taken, date_taken, time_taken, taken_by)
       VALUES ${values}
     `);
@@ -616,7 +617,7 @@ export async function importWastageFromCSV(csvText: string): Promise<number> {
       `('${esc(p.inwardId)}', ${p.qty}, '${esc(p.reason)}', '${esc(p.dateWasted)}', '${esc(p.reportedBy)}', '${esc(p.notes)}')`
     ).join(',\n');
 
-    await window.tasklet.sqlExec(`
+    await sqlExec(`
       INSERT INTO cf_wastage (inward_id, qty_wasted, reason, date_wasted, reported_by, notes)
       VALUES ${values}
     `);
