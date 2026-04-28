@@ -16,6 +16,8 @@ export interface InwardItem {
   total_wasted: number;
   qty_remaining: number;
   status: 'available' | 'partial' | 'gone';
+  moved_to: string;
+  moved_date: string;
 }
 
 export interface OutwardEntry {
@@ -28,6 +30,9 @@ export interface OutwardEntry {
   date_taken: string;
   time_taken: string;
   taken_by: string;
+  recorded_by: string;
+  source: string;
+  donor: string;
 }
 
 export interface WastageEntry {
@@ -41,6 +46,8 @@ export interface WastageEntry {
   date_wasted: string;
   reported_by: string;
   notes: string;
+  weight_kg: number;
+  donor: string;
 }
 
 export interface CustomItem {
@@ -53,6 +60,11 @@ export interface Volunteer {
   id: number;
   name: string;
   initials: string;
+}
+
+export interface Donor {
+  id: number;
+  name: string;
 }
 
 export interface ArchivedRecord {

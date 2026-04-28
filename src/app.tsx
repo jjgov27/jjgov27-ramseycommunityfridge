@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { LayoutDashboard, ArrowDownToLine, ArrowUpFromLine, Trash2, ListPlus, FileBarChart, Archive, Shield, RefreshCw } from 'lucide-react';
-import { TabName, StorageLocation, InwardItem, OutwardEntry, WastageEntry, CustomItem, ArchivedRecord, Volunteer } from './types';
+import { LayoutDashboard, ArrowDownToLine, ArrowUpFromLine, Trash2, ListPlus, FileBarChart, Archive, Shield, RefreshCw, User } from 'lucide-react';
+import { TabName, StorageLocation, InwardItem, OutwardEntry, WastageEntry, CustomItem, ArchivedRecord, Volunteer, Donor } from './types';
 import {
   initDB, addInward, loadInwards, addOutward, loadOutwards, addWastage, loadWastage,
   deleteOutward, deleteWastage, deleteInward, loadCustomItems, addCustomItem, deleteCustomItem,
   archiveCompletedItems, loadArchive, deleteArchiveItem,
   clearAllData, clearArchive, clearEverything, importInwardsFromCSV, importOutwardsFromCSV, importWastageFromCSV, importCustomItems,
-  loadVolunteers, addVolunteer, deleteVolunteer, importVolunteers
+  loadVolunteers, addVolunteer, deleteVolunteer, importVolunteers, bulkInwardsToOutwards,
+  loadDonors, addDonor, deleteDonor, importDonors, moveInwardItem, quickTakeAllAvailable
 } from './utils/db';
 import { Dashboard } from './components/Dashboard';
 import { InwardsTab } from './components/InwardsTab';
@@ -38,18 +39,29 @@ const App: React.FC = () => {
   const [customItems, setCustomItems] = useState<CustomItem[]>([]);
   const [archive, setArchive] = useState<ArchivedRecord[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
+  const [donors, setDonors] = useState<Donor[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [archiveMsg, setArchiveMsg] = useState<string | null>(null);
 
+  // Active volunteer session — persisted to localStorage
+  const [activeVolunteer, setActiveVolunteer] = useState<string>(() => {
+    try { return localStorage.getItem('cf_active_volunteer') || ''; } catch { return ''; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('cf_active_volunteer', activeVolunteer); } catch {}
+  }, [activeVolunteer]);
+
   const refresh = useCallback(async () => {
-    const [inv, out, wst, ci, arch, vols] = await Promise.all([
+    const [inv, out, wst, ci, arch, vols, dnrs] = await Promise.all([
       loadInwards(),
       loadOutwards(),
       loadWastage(),
       loadCustomItems(),
       loadArchive(),
       loadVolunteers(),
+      loadDonors(),
     ]);
     setInwards(inv);
     setOutwards(out);
@@ -57,6 +69,7 @@ const App: React.FC = () => {
     setCustomItems(ci);
     setArchive(arch);
     setVolunteers(vols);
+    setDonors(dnrs);
   }, []);
 
   useEffect(() => {
@@ -69,23 +82,43 @@ const App: React.FC = () => {
     setRefreshing(false);
   };
 
-  const handleAddInward = async (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, stor: StorageLocation, enteredBy?: string) => {
+  const handleAddInward = async (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, stor: StorageLocation, enteredBy?: string, overrideDate?: string) => {
     let formattedBB = bestBefore;
     if (bestBefore && bestBefore.includes('-')) {
       const [y, m, d] = bestBefore.split('-');
       formattedBB = `${d}/${m}/${y}`;
     }
-    await addInward(item, category, qty, unit, donor, formattedBB, stor, enteredBy || '');
+    let formattedDate = overrideDate;
+    if (overrideDate && overrideDate.includes('-')) {
+      const [y, m, d] = overrideDate.split('-');
+      formattedDate = `${d}/${m}/${y}`;
+    }
+    await addInward(item, category, qty, unit, donor, formattedBB, stor, enteredBy || '', formattedDate);
     await refresh();
   };
 
-  const handleTake = async (inwardId: string, qty: number, takenBy: string) => {
-    await addOutward(inwardId, qty, takenBy);
+  const handleTake = async (inwardId: string, qty: number, takenBy: string, recordedBy: string, overrideDate?: string) => {
+    let formattedDate = overrideDate;
+    if (overrideDate && overrideDate.includes('-')) {
+      const [y, m, d] = overrideDate.split('-');
+      formattedDate = `${d}/${m}/${y}`;
+    }
+    await addOutward(inwardId, qty, takenBy, recordedBy, formattedDate);
     await refresh();
   };
 
-  const handleAddWastage = async (inwardId: string, qty: number, reason: string, reportedBy: string, notes: string) => {
-    await addWastage(inwardId, qty, reason, reportedBy, notes);
+  const handleAddWastage = async (inwardId: string, qty: number, reason: string, reportedBy: string, notes: string, overrideDate?: string, weightKg?: number) => {
+    let formattedDate = overrideDate;
+    if (overrideDate && overrideDate.includes('-')) {
+      const [y, m, d] = overrideDate.split('-');
+      formattedDate = `${d}/${m}/${y}`;
+    }
+    await addWastage(inwardId, qty, reason, reportedBy, notes, formattedDate, weightKg || 0);
+    await refresh();
+  };
+
+  const handleMoveItem = async (id: string, newStorage: StorageLocation) => {
+    await moveInwardItem(id, newStorage);
     await refresh();
   };
 
@@ -117,6 +150,13 @@ const App: React.FC = () => {
   const handleDeleteArchive = async (id: string) => {
     await deleteArchiveItem(id);
     await refresh();
+  };
+
+  // Bulk inwards to outwards
+  const handleBulkOutwards = async (): Promise<number> => {
+    const count = await bulkInwardsToOutwards(activeVolunteer);
+    await refresh();
+    return count;
   };
 
   // Admin actions
@@ -170,6 +210,24 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {/* Volunteer session selector */}
+          <div className="flex items-center gap-1 bg-white/15 rounded-lg px-2 py-1">
+            <User size={12} className="text-white/70" />
+            <select
+              className="bg-transparent text-white text-xs border-none outline-none cursor-pointer appearance-none pr-3"
+              value={activeVolunteer}
+              onChange={e => setActiveVolunteer(e.target.value)}
+              style={{ backgroundImage: 'none' }}
+            >
+              <option value="" className="text-gray-800">No volunteer</option>
+              {volunteers.map(v => (
+                <option key={v.id} value={v.initials} className="text-gray-800">
+                  {v.initials} — {v.name}
+                </option>
+              ))}
+            </select>
+            <span className="text-white/40 text-xs">▾</span>
+          </div>
           {/* Archive button in header */}
           {completedCount > 0 && (
             <button
@@ -186,6 +244,13 @@ const App: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Active volunteer banner */}
+      {activeVolunteer && (
+        <div className="px-3 py-1.5 text-xs text-center bg-emerald-50 text-emerald-700 font-medium border-b border-emerald-200">
+          👤 Logged in as: <strong>{activeVolunteer}</strong> — {volunteers.find(v => v.initials === activeVolunteer)?.name || activeVolunteer}
+        </div>
+      )}
 
       {/* Archive message */}
       {archiveMsg && (
@@ -219,6 +284,7 @@ const App: React.FC = () => {
             inwards={inwards} outwards={outwards} wastage={wastage}
             storage={storage} onStorageChange={setStorage}
             onNavigate={(t) => setTab(t)}
+            donors={donors}
           />
         )}
         {tab === 'inwards' && (
@@ -226,13 +292,17 @@ const App: React.FC = () => {
             inwards={inwards} customItems={customItems}
             storage={storage} onStorageChange={setStorage}
             onAdd={handleAddInward} onDelete={handleDeleteInward}
+            onMove={handleMoveItem}
+            activeVolunteer={activeVolunteer} volunteers={volunteers}
+            donors={donors}
           />
         )}
         {tab === 'outwards' && (
           <OutwardsTab
             inwards={inwards} outwards={outwards}
             storage={storage} onStorageChange={setStorage}
-            onTake={handleTake} onDelete={handleDeleteOutward}
+            onTake={handleTake} onTakeAll={async (s, by, rec, d) => { const c = await quickTakeAllAvailable(s, by, rec, d); await refresh(); return c; }} onDelete={handleDeleteOutward}
+            activeVolunteer={activeVolunteer} volunteers={volunteers}
           />
         )}
         {tab === 'wastage' && (
@@ -240,6 +310,7 @@ const App: React.FC = () => {
             inwards={inwards} wastage={wastage}
             storage={storage} onStorageChange={setStorage}
             onAdd={handleAddWastage} onDelete={handleDeleteWastage}
+            activeVolunteer={activeVolunteer} volunteers={volunteers}
           />
         )}
         {tab === 'items' && (
@@ -266,6 +337,20 @@ const App: React.FC = () => {
               await refresh();
               return count;
             }}
+            donors={donors}
+            onAddDonor={async (name: string) => {
+              await addDonor(name);
+              await refresh();
+            }}
+            onDeleteDonor={async (id: number) => {
+              await deleteDonor(id);
+              await refresh();
+            }}
+            onImportDonors={async (csv: string) => {
+              const count = await importDonors(csv);
+              await refresh();
+              return count;
+            }}
           />
         )}
         {tab === 'reports' && (
@@ -273,6 +358,7 @@ const App: React.FC = () => {
             inwards={inwards} wastage={wastage} outwards={outwards}
             storage={storage} onStorageChange={setStorage}
             archive={archive} customItems={customItems}
+            donors={donors}
           />
         )}
         {tab === 'history' && (
@@ -291,6 +377,8 @@ const App: React.FC = () => {
             onImportOutwards={handleImportOutwards}
             onImportWastage={handleImportWastage}
             onImportItems={handleImportItems}
+            onBulkOutwards={handleBulkOutwards}
+            inwardsCount={inwards.filter(i => i.qty_remaining > 0).length}
           />
         )}
       </div>

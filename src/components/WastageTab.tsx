@@ -1,37 +1,54 @@
 import React, { useState } from 'react';
-import { InwardItem, WastageEntry, StorageLocation, WASTAGE_REASONS, CATEGORY_COLOURS } from '../types';
+import { InwardItem, WastageEntry, StorageLocation, WASTAGE_REASONS, CATEGORY_COLOURS, Volunteer } from '../types';
 import { Trash2, ChevronUp, Snowflake, ThermometerSun } from 'lucide-react';
+
+const todayISO = () => new Date().toISOString().split('T')[0];
+const kgToLbs = (kg: number) => (kg * 2.20462).toFixed(1);
 
 interface WastageTabProps {
   inwards: InwardItem[];
   wastage: WastageEntry[];
   storage: StorageLocation;
   onStorageChange: (s: StorageLocation) => void;
-  onAdd: (inwardId: string, qty: number, reason: string, reportedBy: string, notes: string) => void;
+  onAdd: (inwardId: string, qty: number, reason: string, reportedBy: string, notes: string, overrideDate?: string, weightKg?: number) => void;
   onDelete: (id: number) => void;
+  activeVolunteer: string;
+  volunteers: Volunteer[];
 }
 
-export const WastageTab: React.FC<WastageTabProps> = ({ inwards, wastage, storage, onStorageChange, onAdd, onDelete }) => {
+export const WastageTab: React.FC<WastageTabProps> = ({ inwards, wastage, storage, onStorageChange, onAdd, onDelete, activeVolunteer, volunteers }) => {
   const [showForm, setShowForm] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [qtyWasted, setQtyWasted] = useState(1);
   const [reason, setReason] = useState('Past Expiry');
-  const [reportedBy, setReportedBy] = useState('');
+  const [reportedBy, setReportedBy] = useState(activeVolunteer);
   const [notes, setNotes] = useState('');
+  const [dateWaste, setDateWaste] = useState(todayISO());
+  const [weightKg, setWeightKg] = useState(0);
 
   const availableItems = inwards.filter(i => i.storage === storage && i.qty_remaining > 0);
   const selectedItem = inwards.find(i => i.id === selectedId);
   const filteredWastage = wastage.filter(w => w.storage === storage);
   const isFridge = storage === 'fridge';
 
+  const handleOpenForm = () => {
+    if (!showForm) {
+      setReportedBy(activeVolunteer);
+      setDateWaste(todayISO());
+    }
+    setShowForm(!showForm);
+  };
+
   const handleSubmit = () => {
     if (!selectedId || qtyWasted <= 0) return;
-    onAdd(selectedId, qtyWasted, reason, reportedBy.trim(), notes.trim());
+    onAdd(selectedId, qtyWasted, reason, reportedBy.trim(), notes.trim(), dateWaste, weightKg || 0);
     setSelectedId('');
     setQtyWasted(1);
     setReason('Past Expiry');
-    setReportedBy('');
+    setReportedBy(activeVolunteer);
     setNotes('');
+    setDateWaste(todayISO());
+    setWeightKg(0);
     setShowForm(false);
   };
 
@@ -60,7 +77,7 @@ export const WastageTab: React.FC<WastageTabProps> = ({ inwards, wastage, storag
       {/* Log wastage button */}
       <button
         className="btn btn-sm w-full bg-red-500 hover:bg-red-600 border-red-600 text-white"
-        onClick={() => setShowForm(!showForm)}
+        onClick={handleOpenForm}
       >
         {showForm ? <ChevronUp size={16} /> : <Trash2 size={16} />}
         {showForm ? 'Close Form' : 'Log Wastage'}
@@ -79,6 +96,11 @@ export const WastageTab: React.FC<WastageTabProps> = ({ inwards, wastage, storag
             ) : (
               <>
                 <div className="form-control">
+                  <label className="label py-0.5"><span className="label-text text-xs font-medium">📅 Date</span></label>
+                  <input type="date" className="input input-bordered input-sm w-full bg-white" value={dateWaste} onChange={e => setDateWaste(e.target.value)} />
+                </div>
+
+                <div className="form-control">
                   <label className="label py-0.5"><span className="label-text text-xs font-medium">Select Item *</span></label>
                   <select className="select select-bordered select-sm w-full bg-white" value={selectedId} onChange={e => { setSelectedId(e.target.value); setQtyWasted(1); }}>
                     <option value="">Choose an item...</option>
@@ -93,6 +115,26 @@ export const WastageTab: React.FC<WastageTabProps> = ({ inwards, wastage, storag
                   <input type="number" className="input input-bordered input-sm w-full bg-white" min={1} max={selectedItem?.qty_remaining || 999} value={qtyWasted} onChange={e => setQtyWasted(parseInt(e.target.value) || 1)} />
                 </div>
 
+                {/* Weight field */}
+                <div className="form-control">
+                  <label className="label py-0.5"><span className="label-text text-xs font-medium">⚖️ Weight (KG)</span></label>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      className="input input-bordered input-sm w-full bg-white"
+                      min={0}
+                      step={0.1}
+                      placeholder="0.0"
+                      value={weightKg || ''}
+                      onChange={e => setWeightKg(parseFloat(e.target.value) || 0)}
+                    />
+                    {weightKg > 0 && (
+                      <span className="text-xs text-base-content/50 whitespace-nowrap">= {kgToLbs(weightKg)} lbs</span>
+                    )}
+                  </div>
+                  <label className="label py-0"><span className="label-text-alt text-[10px] text-base-content/40">Optional — enter weight in KG, auto-converts to lbs</span></label>
+                </div>
+
                 <div className="form-control">
                   <label className="label py-0.5"><span className="label-text text-xs font-medium">Reason *</span></label>
                   <select className="select select-bordered select-sm w-full bg-white" value={reason} onChange={e => setReason(e.target.value)}>
@@ -102,7 +144,24 @@ export const WastageTab: React.FC<WastageTabProps> = ({ inwards, wastage, storag
 
                 <div className="form-control">
                   <label className="label py-0.5"><span className="label-text text-xs font-medium">🗑️ Reported By</span></label>
-                  <input className="input input-bordered input-sm w-full bg-white" placeholder="e.g. Volunteer Name, Staff Member..." value={reportedBy} onChange={e => setReportedBy(e.target.value)} />
+                  <div className="flex gap-2">
+                    <select
+                      className="select select-bordered select-sm bg-white flex-1"
+                      value={reportedBy}
+                      onChange={e => setReportedBy(e.target.value)}
+                    >
+                      <option value="">Select volunteer...</option>
+                      {volunteers.map(v => (
+                        <option key={v.id} value={v.initials}>{v.initials} — {v.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      className="input input-bordered input-sm bg-white w-20"
+                      placeholder="Or type"
+                      value={reportedBy}
+                      onChange={e => setReportedBy(e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 <div className="form-control">
@@ -138,9 +197,15 @@ export const WastageTab: React.FC<WastageTabProps> = ({ inwards, wastage, storag
                         <span className="font-bold text-sm">{w.item}</span>
                         <span className={`text-xs px-1.5 py-0.5 rounded-full border ${catColour}`}>{w.category}</span>
                         <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">{w.qty_wasted} wasted</span>
+                        {w.weight_kg > 0 && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium">
+                            ⚖️ {w.weight_kg}kg ({kgToLbs(w.weight_kg)}lbs)
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-base-content/60">
                         {w.reason} · {w.date_wasted}
+                        {w.donor && ` · From: ${w.donor}`}
                         {w.reported_by && ` · By: ${w.reported_by}`}
                         {w.notes && ` · ${w.notes}`}
                       </div>

@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { AlertTriangle, Trash2, Upload, Shield, Database, FileUp, Package, ArrowDownToLine, CircleAlert, Utensils } from 'lucide-react';
+import { AlertTriangle, Trash2, Upload, Shield, Database, FileUp, Package, ArrowDownToLine, CircleAlert, Utensils, ArrowRightLeft } from 'lucide-react';
 
 type ImportType = 'inwards' | 'outwards' | 'wastage' | 'items';
 
@@ -46,11 +46,14 @@ interface AdminTabProps {
   onImportOutwards: (csv: string) => Promise<number>;
   onImportWastage: (csv: string) => Promise<number>;
   onImportItems: (csv: string) => Promise<number>;
+  onBulkOutwards: () => Promise<number>;
+  inwardsCount: number;
 }
 
 export const AdminTab: React.FC<AdminTabProps> = ({
   onClearLive, onClearArchive, onClearEverything,
   onImportInwards, onImportOutwards, onImportWastage, onImportItems,
+  onBulkOutwards, inwardsCount,
 }) => {
   const [confirmAction, setConfirmAction] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -201,6 +204,37 @@ export const AdminTab: React.FC<AdminTabProps> = ({
               )}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ========== BULK INWARDS → OUTWARDS ========== */}
+      <div className="card bg-base-200 border border-info/20">
+        <div className="card-body p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <ArrowRightLeft size={16} className="text-info" />
+            <h3 className="font-semibold text-sm">Bulk Inwards → Outwards</h3>
+          </div>
+          <p className="text-xs text-base-content/60">
+            Mark ALL remaining inward stock as handed out. Creates an outward record for every item with remaining quantity.
+            This is a one-time tool for importing historical data where everything has already been distributed.
+          </p>
+          <div className="flex items-center justify-between bg-base-300 rounded-lg p-3">
+            <div>
+              <p className="text-sm font-medium">{inwardsCount} item{inwardsCount !== 1 ? 's' : ''} with remaining stock</p>
+              <p className="text-xs text-base-content/50">Will create outward entries for all remaining quantities</p>
+            </div>
+            <button
+              className={`btn btn-sm ${confirmAction === 'bulk-out' ? 'btn-info' : 'btn-outline btn-info'}`}
+              onClick={() => handleAction('bulk-out', async () => {
+                const count = await onBulkOutwards();
+                showMessage('success', `✅ Created outward records for ${count} items!`);
+              })}
+              disabled={busy || inwardsCount === 0}
+            >
+              {busy ? <span className="loading loading-spinner loading-xs" /> : <ArrowRightLeft size={14} />}
+              {confirmAction === 'bulk-out' ? 'Confirm?' : 'Bulk Export'}
+            </button>
+          </div>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { CustomItem, Volunteer, CATEGORIES, REFERENCE_ITEMS, CATEGORY_COLOURS } from '../types';
-import { Plus, Trash2, Search, Upload, FileDown, AlertTriangle, Users, User } from 'lucide-react';
+import { CustomItem, Volunteer, Donor, CATEGORIES, REFERENCE_ITEMS, CATEGORY_COLOURS } from '../types';
+import { Plus, Trash2, Search, Upload, FileDown, AlertTriangle, Users, User, Store } from 'lucide-react';
 
 interface ItemsTabProps {
   customItems: CustomItem[];
@@ -11,11 +11,16 @@ interface ItemsTabProps {
   onAddVolunteer: (name: string, initials: string) => void;
   onDeleteVolunteer: (id: number) => void;
   onImportVolunteers: (csv: string) => Promise<number>;
+  donors: Donor[];
+  onAddDonor: (name: string) => void;
+  onDeleteDonor: (id: number) => void;
+  onImportDonors: (csv: string) => Promise<number>;
 }
 
 export const ItemsTab: React.FC<ItemsTabProps> = ({
   customItems, onAdd, onDelete, onImportItems,
   volunteers, onAddVolunteer, onDeleteVolunteer, onImportVolunteers,
+  donors, onAddDonor, onDeleteDonor, onImportDonors,
 }) => {
   // Items state
   const [name, setName] = useState('');
@@ -40,8 +45,18 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
   const [volConfirmReplace, setVolConfirmReplace] = useState(false);
   const volFileRef = useRef<HTMLInputElement>(null);
 
+  // Donors state
+  const [donorName, setDonorName] = useState('');
+  const [donorSearch, setDonorSearch] = useState('');
+  const [showDonorImport, setShowDonorImport] = useState(false);
+  const [donorImportText, setDonorImportText] = useState('');
+  const [donorImporting, setDonorImporting] = useState(false);
+  const [donorImportMsg, setDonorImportMsg] = useState<string | null>(null);
+  const [donorConfirmReplace, setDonorConfirmReplace] = useState(false);
+  const donorFileRef = useRef<HTMLInputElement>(null);
+
   // Section toggle
-  const [section, setSection] = useState<'items' | 'volunteers'>('items');
+  const [section, setSection] = useState<'items' | 'volunteers' | 'donors'>('items');
 
   // Items handlers
   const handleAdd = () => {
@@ -118,7 +133,44 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  // Preview for item import
+  // Donor handlers
+  const handleAddDonor = () => {
+    if (!donorName.trim()) return;
+    onAddDonor(donorName.trim());
+    setDonorName('');
+  };
+
+  const handleDonorFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => { setDonorImportText(ev.target?.result as string || ''); setDonorConfirmReplace(false); };
+    reader.readAsText(file);
+    if (donorFileRef.current) donorFileRef.current.value = '';
+  };
+
+  const handleDonorImport = async () => {
+    if (!donorConfirmReplace) { setDonorConfirmReplace(true); return; }
+    setDonorImporting(true);
+    try {
+      const count = await onImportDonors(donorImportText);
+      setDonorImportMsg(`✅ Imported ${count} donors (existing replaced)`);
+      setDonorImportText(''); setShowDonorImport(false); setDonorConfirmReplace(false);
+    } catch (err) { setDonorImportMsg(`❌ Import failed: ${String(err)}`); }
+    setDonorImporting(false);
+    setTimeout(() => setDonorImportMsg(null), 4000);
+  };
+
+  const handleDonorExport = () => {
+    const csvLines = ['Name'];
+    donors.forEach(d => csvLines.push(`"${d.name}"`));
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'donors.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Preview helpers
   const previewItems = importText ? (() => {
     const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
     const firstLine = lines[0]?.toLowerCase() || '';
@@ -137,7 +189,6 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
     return hasHeader ? lines.length - 1 : lines.length;
   })() : 0;
 
-  // Preview for volunteer import
   const previewVols = volImportText ? (() => {
     const lines = volImportText.split('\n').map(l => l.trim()).filter(Boolean);
     const firstLine = lines[0]?.toLowerCase() || '';
@@ -151,6 +202,24 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
     });
   })() : [];
 
+  const previewDonors = donorImportText ? (() => {
+    const lines = donorImportText.split('\n').map(l => l.trim()).filter(Boolean);
+    const firstLine = lines[0]?.toLowerCase() || '';
+    const hasHeader = firstLine.includes('name') || firstLine.includes('donor') || firstLine.includes('source');
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    return dataLines.slice(0, 10).map(line => {
+      const parts = line.match(/(\".*?\"|[^,]+)/g)?.map(p => p.replace(/^"|"$/g, '').trim()) || [];
+      return parts[0] || '';
+    }).filter(Boolean);
+  })() : [];
+
+  const totalDonorImportLines = donorImportText ? (() => {
+    const lines = donorImportText.split('\n').map(l => l.trim()).filter(Boolean);
+    const firstLine = lines[0]?.toLowerCase() || '';
+    const hasHeader = firstLine.includes('name') || firstLine.includes('donor') || firstLine.includes('source');
+    return hasHeader ? lines.length - 1 : lines.length;
+  })() : 0;
+
   const builtinList = Object.entries(REFERENCE_ITEMS)
     .sort(([a], [b]) => a.localeCompare(b))
     .filter(([n]) => !search || n.toLowerCase().includes(search.toLowerCase()));
@@ -163,27 +232,37 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
     !volSearch || v.name.toLowerCase().includes(volSearch.toLowerCase()) || v.initials.toLowerCase().includes(volSearch.toLowerCase())
   );
 
+  const filteredDonors = donors.filter(d =>
+    !donorSearch || d.name.toLowerCase().includes(donorSearch.toLowerCase())
+  );
+
   return (
     <div className="space-y-3">
       {/* Header */}
       <div className="rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-white p-4">
         <h2 className="font-bold text-base">⚙️ Settings & Manage</h2>
-        <p className="text-xs text-white/80 mt-1">Manage food items and volunteer initials. They'll appear as options in the entry forms.</p>
+        <p className="text-xs text-white/80 mt-1">Manage food items, volunteers, and donors/sources. They'll appear as options in the entry forms.</p>
       </div>
 
-      {/* Section toggle */}
+      {/* Section toggle - 3 way */}
       <div className="flex rounded-lg overflow-hidden border-2 border-violet-300">
         <button
-          className={`flex-1 py-2.5 text-sm font-bold transition-all flex items-center justify-center gap-1.5 ${section === 'items' ? 'bg-violet-500 text-white' : 'bg-base-100 text-base-content/60 hover:bg-base-200'}`}
+          className={`flex-1 py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-1 ${section === 'items' ? 'bg-violet-500 text-white' : 'bg-base-100 text-base-content/60 hover:bg-base-200'}`}
           onClick={() => setSection('items')}
         >
-          📋 Food Items ({customItems.length})
+          📋 Items ({customItems.length})
         </button>
         <button
-          className={`flex-1 py-2.5 text-sm font-bold transition-all flex items-center justify-center gap-1.5 ${section === 'volunteers' ? 'bg-teal-500 text-white' : 'bg-base-100 text-base-content/60 hover:bg-base-200'}`}
+          className={`flex-1 py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-1 ${section === 'volunteers' ? 'bg-teal-500 text-white' : 'bg-base-100 text-base-content/60 hover:bg-base-200'}`}
           onClick={() => setSection('volunteers')}
         >
-          <Users size={14} /> Volunteers ({volunteers.length})
+          <Users size={12} /> Vols ({volunteers.length})
+        </button>
+        <button
+          className={`flex-1 py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-1 ${section === 'donors' ? 'bg-orange-500 text-white' : 'bg-base-100 text-base-content/60 hover:bg-base-200'}`}
+          onClick={() => setSection('donors')}
+        >
+          <Store size={12} /> Donors ({donors.length})
         </button>
       </div>
 
@@ -196,7 +275,6 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             </div>
           )}
 
-          {/* Action buttons */}
           <div className="flex gap-2">
             <button className="btn btn-sm flex-1 bg-violet-500 hover:bg-violet-600 border-violet-600 text-white" onClick={() => setShowImport(!showImport)}>
               <Upload size={14} /> Import Items
@@ -208,7 +286,6 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             )}
           </div>
 
-          {/* Import panel */}
           {showImport && (
             <div className="rounded-xl border-2 border-amber-200 bg-amber-50/50 p-4 space-y-3">
               <h3 className="font-bold text-sm">📥 Import Items from CSV</h3>
@@ -247,7 +324,6 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             </div>
           )}
 
-          {/* Add form */}
           <div className="rounded-xl border-2 border-violet-200 bg-violet-50/50 p-4 space-y-3">
             <h3 className="font-bold text-sm">➕ Add Custom Item</h3>
             <div className="form-control">
@@ -265,7 +341,6 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             </button>
           </div>
 
-          {/* Tab toggle */}
           <div className="flex rounded-lg overflow-hidden border border-base-300">
             <button className={`flex-1 py-2 text-xs font-bold transition-all ${tab === 'custom' ? 'bg-violet-500 text-white' : 'bg-base-200 text-base-content/60'}`} onClick={() => setTab('custom')}>
               Your Items ({customItems.length})
@@ -275,13 +350,11 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             </button>
           </div>
 
-          {/* Search */}
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40" />
             <input className="input input-bordered input-sm w-full pl-8" placeholder="Search items..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
 
-          {/* List */}
           {tab === 'custom' ? (
             <div className="space-y-1">
               {filteredCustom.length === 0 ? (
@@ -333,7 +406,6 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             </div>
           )}
 
-          {/* Action buttons */}
           <div className="flex gap-2">
             <button className="btn btn-sm flex-1 bg-teal-500 hover:bg-teal-600 border-teal-600 text-white" onClick={() => setShowVolImport(!showVolImport)}>
               <Upload size={14} /> Import Volunteers
@@ -345,7 +417,6 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             )}
           </div>
 
-          {/* Import panel */}
           {showVolImport && (
             <div className="rounded-xl border-2 border-amber-200 bg-amber-50/50 p-4 space-y-3">
               <h3 className="font-bold text-sm">📥 Import Volunteers from CSV</h3>
@@ -356,7 +427,6 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
                 <div className="text-base-content/40 mb-1">Example:</div>
                 <div>Jane Smith, JS</div>
                 <div>Tom Brown, TB</div>
-                <div>Sarah Davies, SD</div>
               </div>
               <input ref={volFileRef} type="file" accept=".csv,.txt" className="file-input file-input-bordered file-input-sm w-full" onChange={handleVolFileUpload} />
               <textarea className="textarea textarea-bordered w-full text-xs font-mono h-28" placeholder="Or paste volunteers here — one per line: Name, Initials" value={volImportText} onChange={e => { setVolImportText(e.target.value); setVolConfirmReplace(false); }} />
@@ -385,7 +455,6 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             </div>
           )}
 
-          {/* Add form */}
           <div className="rounded-xl border-2 border-teal-200 bg-teal-50/50 p-4 space-y-3">
             <h3 className="font-bold text-sm flex items-center gap-1.5"><User size={14} /> Add Volunteer</h3>
             <div className="grid grid-cols-2 gap-2">
@@ -403,13 +472,11 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             </button>
           </div>
 
-          {/* Search */}
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40" />
             <input className="input input-bordered input-sm w-full pl-8" placeholder="Search volunteers..." value={volSearch} onChange={e => setVolSearch(e.target.value)} />
           </div>
 
-          {/* Volunteers list */}
           <div className="space-y-1">
             {filteredVols.length === 0 ? (
               <div className="text-center text-base-content/60 py-6 text-sm">
@@ -423,6 +490,103 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
                     <span className="font-medium text-sm">{v.name}</span>
                   </div>
                   <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDeleteVolunteer(v.id)}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============ DONORS SECTION ============ */}
+      {section === 'donors' && (
+        <div className="space-y-3">
+          {donorImportMsg && (
+            <div className={`px-3 py-2 text-xs text-center font-medium rounded-lg ${donorImportMsg.startsWith('✅') ? 'bg-success/10 text-success' : 'bg-error/10 text-error'}`}>
+              {donorImportMsg}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button className="btn btn-sm flex-1 bg-orange-500 hover:bg-orange-600 border-orange-600 text-white" onClick={() => setShowDonorImport(!showDonorImport)}>
+              <Upload size={14} /> Import Donors
+            </button>
+            {donors.length > 0 && (
+              <button className="btn btn-sm btn-outline border-orange-300 text-orange-600 hover:bg-orange-50" onClick={handleDonorExport}>
+                <FileDown size={14} /> Export
+              </button>
+            )}
+          </div>
+
+          {showDonorImport && (
+            <div className="rounded-xl border-2 border-amber-200 bg-amber-50/50 p-4 space-y-3">
+              <h3 className="font-bold text-sm">📥 Import Donors from CSV</h3>
+              <p className="text-xs text-base-content/60">
+                Format: <code className="bg-base-200 px-1 rounded">Name</code> (one per line). All names auto-capitalised.
+              </p>
+              <div className="bg-base-200 rounded-lg p-2 text-xs font-mono">
+                <div className="text-base-content/40 mb-1">Example:</div>
+                <div>Tesco</div>
+                <div>Lidl</div>
+                <div>Co-op</div>
+                <div>Local Bakery</div>
+              </div>
+              <input ref={donorFileRef} type="file" accept=".csv,.txt" className="file-input file-input-bordered file-input-sm w-full" onChange={handleDonorFileUpload} />
+              <textarea className="textarea textarea-bordered w-full text-xs font-mono h-28" placeholder="Or paste donors here — one per line" value={donorImportText} onChange={e => { setDonorImportText(e.target.value); setDonorConfirmReplace(false); }} />
+              {previewDonors.length > 0 && (
+                <div className="bg-white rounded-lg border p-2 space-y-1">
+                  <div className="text-xs font-bold text-orange-600">Preview ({totalDonorImportLines} donor{totalDonorImportLines !== 1 ? 's' : ''}{totalDonorImportLines > 10 ? ', showing first 10' : ''}):</div>
+                  {previewDonors.map((name, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <Store size={10} className="text-orange-400" />
+                      <span className="font-medium">{name.replace(/\b\w/g, c => c.toUpperCase())}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {donors.length > 0 && (
+                <div className="flex items-start gap-2 p-2 rounded-lg bg-warning/10 border border-warning/30">
+                  <AlertTriangle size={14} className="text-warning mt-0.5 flex-shrink-0" />
+                  <span className="text-xs text-warning">This will <strong>replace all {donors.length} existing donors</strong> with the imported list.</span>
+                </div>
+              )}
+              <button className={`btn btn-sm w-full ${donorConfirmReplace ? 'bg-red-500 hover:bg-red-600 border-red-600' : 'bg-orange-500 hover:bg-orange-600 border-orange-600'} text-white`} onClick={handleDonorImport} disabled={!donorImportText.trim() || donorImporting}>
+                {donorImporting ? (<><span className="loading loading-spinner loading-xs" /> Importing...</>) : donorConfirmReplace ? (<>⚠️ Click Again to Confirm Replace</>) : (<><Upload size={14} /> Import & Replace All Donors</>)}
+              </button>
+              <button className="btn btn-ghost btn-xs w-full" onClick={() => { setShowDonorImport(false); setDonorImportText(''); setDonorConfirmReplace(false); }}>Cancel</button>
+            </div>
+          )}
+
+          <div className="rounded-xl border-2 border-orange-200 bg-orange-50/50 p-4 space-y-3">
+            <h3 className="font-bold text-sm flex items-center gap-1.5"><Store size={14} /> Add Donor / Source</h3>
+            <div className="form-control">
+              <label className="label py-0.5"><span className="label-text text-xs font-medium">Donor Name *</span></label>
+              <input className="input input-bordered input-sm w-full bg-white" placeholder="e.g. Tesco, Lidl, Co-op, Local Bakery..." value={donorName} onChange={e => setDonorName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAddDonor(); }} />
+            </div>
+            <button className="btn btn-sm w-full bg-orange-500 hover:bg-orange-600 border-orange-600 text-white" onClick={handleAddDonor} disabled={!donorName.trim()}>
+              <Plus size={16} /> Add Donor
+            </button>
+          </div>
+
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40" />
+            <input className="input input-bordered input-sm w-full pl-8" placeholder="Search donors..." value={donorSearch} onChange={e => setDonorSearch(e.target.value)} />
+          </div>
+
+          <div className="space-y-1">
+            {filteredDonors.length === 0 ? (
+              <div className="text-center text-base-content/60 py-6 text-sm">
+                {donors.length === 0 ? "No donors yet. Add your first one above or import a list!" : "No matches."}
+              </div>
+            ) : (
+              filteredDonors.map(d => (
+                <div key={d.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-base-200 transition-colors border-b border-base-200 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <Store size={14} className="text-orange-400" />
+                    <span className="font-medium text-sm">{d.name}</span>
+                  </div>
+                  <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDeleteDonor(d.id)}>
                     <Trash2 size={14} />
                   </button>
                 </div>

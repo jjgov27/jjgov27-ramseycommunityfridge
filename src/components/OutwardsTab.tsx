@@ -1,32 +1,56 @@
-import React, { useState } from 'react';
-import { InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS } from '../types';
-import { Minus, Trash2, ChevronUp, Snowflake, ThermometerSun } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS, Volunteer } from '../types';
+import { Minus, Trash2, ChevronUp, Snowflake, ThermometerSun, CheckCheck } from 'lucide-react';
+
+const todayISO = () => new Date().toISOString().split('T')[0];
 
 interface OutwardsTabProps {
   inwards: InwardItem[];
   outwards: OutwardEntry[];
   storage: StorageLocation;
   onStorageChange: (s: StorageLocation) => void;
-  onTake: (inwardId: string, qty: number, takenBy: string) => void;
+  onTake: (inwardId: string, qty: number, takenBy: string, recordedBy: string, overrideDate?: string) => void;
+  onTakeAll: (storage: StorageLocation, takenBy: string, recordedBy: string, dateOverride?: string) => Promise<number>;
   onDelete: (id: number) => void;
+  activeVolunteer: string;
+  volunteers: Volunteer[];
 }
 
-export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, storage, onStorageChange, onTake, onDelete }) => {
+export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, storage, onStorageChange, onTake, onTakeAll, onDelete, activeVolunteer, volunteers }) => {
   const [showForm, setShowForm] = useState(false);
+  const [showTakeAll, setShowTakeAll] = useState(false);
+  const [takeAllBy, setTakeAllBy] = useState('');
+  const [takeAllRecBy, setTakeAllRecBy] = useState(activeVolunteer);
+  const [takeAllDate, setTakeAllDate] = useState(todayISO());
+  const [takeAllConfirm, setTakeAllConfirm] = useState(false);
+  const [takeAllDone, setTakeAllDone] = useState('');
+  const takeAllTimer = useRef<any>(null);
   const [selectedId, setSelectedId] = useState('');
   const [qtyTaken, setQtyTaken] = useState(1);
   const [takenBy, setTakenBy] = useState('');
+  const [recordedBy, setRecordedBy] = useState(activeVolunteer);
+  const [dateOut, setDateOut] = useState(todayISO());
 
   const availableItems = inwards.filter(i => i.storage === storage && i.qty_remaining > 0);
   const selectedItem = inwards.find(i => i.id === selectedId);
   const filteredOutwards = outwards.filter(o => o.storage === storage);
   const isFridge = storage === 'fridge';
 
+  const handleOpenForm = () => {
+    if (!showForm) {
+      setRecordedBy(activeVolunteer);
+      setDateOut(todayISO());
+    }
+    setShowForm(!showForm);
+  };
+
   const handleSubmit = () => {
     if (!selectedId || qtyTaken <= 0) return;
-    onTake(selectedId, qtyTaken, takenBy.trim());
+    onTake(selectedId, qtyTaken, takenBy.trim(), recordedBy.trim(), dateOut);
     setQtyTaken(1);
     setTakenBy('');
+    setRecordedBy(activeVolunteer);
+    setDateOut(todayISO());
   };
 
   return (
@@ -51,14 +75,98 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
         </button>
       </div>
 
-      {/* Record take button */}
-      <button
-        className={`btn btn-sm w-full text-white ${isFridge ? 'bg-orange-500 hover:bg-orange-600 border-orange-600' : 'bg-indigo-500 hover:bg-indigo-600 border-indigo-600'}`}
-        onClick={() => setShowForm(!showForm)}
-      >
-        {showForm ? <ChevronUp size={16} /> : <Minus size={16} />}
-        {showForm ? 'Close Form' : `Record Item Taken from ${isFridge ? 'Fridge' : 'Freezer'}`}
-      </button>
+      {/* Action buttons */}
+      <div className="flex gap-2">
+        <button
+          className={`btn btn-sm flex-1 text-white ${isFridge ? 'bg-orange-500 hover:bg-orange-600 border-orange-600' : 'bg-indigo-500 hover:bg-indigo-600 border-indigo-600'}`}
+          onClick={handleOpenForm}
+        >
+          {showForm ? <ChevronUp size={16} /> : <Minus size={16} />}
+          {showForm ? 'Close' : 'Record Single Take'}
+        </button>
+        <button
+          className={`btn btn-sm text-white ${availableItems.length === 0 ? 'btn-disabled' : isFridge ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-700' : 'bg-cyan-600 hover:bg-cyan-700 border-cyan-700'}`}
+          onClick={() => { setShowTakeAll(!showTakeAll); setShowForm(false); setTakeAllConfirm(false); setTakeAllDone(''); setTakeAllRecBy(activeVolunteer); setTakeAllDate(todayISO()); }}
+        >
+          <CheckCheck size={16} />
+          {showTakeAll ? 'Close' : `Take All (${availableItems.length})`}
+        </button>
+      </div>
+
+      {/* Take All panel */}
+      {showTakeAll && availableItems.length > 0 && (
+        <div className={`rounded-xl border-2 ${isFridge ? 'border-emerald-200 bg-emerald-50/50' : 'border-cyan-200 bg-cyan-50/50'}`}>
+          <div className="p-4 space-y-3">
+            <h3 className="font-bold text-sm flex items-center gap-2">
+              <CheckCheck size={16} /> ⚡ Quick Take All — {isFridge ? 'Fridge' : 'Freezer'}
+            </h3>
+            <div className="rounded-lg bg-white border border-base-300 p-3 text-sm">
+              <p className="font-medium mb-2">This will record <span className="text-lg font-bold text-emerald-700">{availableItems.length}</span> items as fully handed out:</p>
+              <div className="max-h-32 overflow-y-auto space-y-1">
+                {availableItems.map(i => (
+                  <div key={i.id} className="flex justify-between text-xs py-0.5 border-b border-base-200 last:border-0">
+                    <span className="flex items-center gap-1">
+                      <span className="font-mono bg-base-200 px-1 rounded">{i.id}</span>
+                      <span>{i.item}</span>
+                    </span>
+                    <span className="font-bold text-emerald-700">{i.qty_remaining} {i.unit}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 pt-2 border-t border-base-300 flex justify-between font-bold text-sm">
+                <span>Total items:</span>
+                <span className="text-emerald-700">{availableItems.reduce((s, i) => s + i.qty_remaining, 0)} units across {availableItems.length} items</span>
+              </div>
+            </div>
+
+            <div className="form-control">
+              <label className="label py-0.5"><span className="label-text text-xs font-medium">📅 Date</span></label>
+              <input type="date" className="input input-bordered input-sm w-full bg-white" value={takeAllDate} onChange={e => setTakeAllDate(e.target.value)} />
+            </div>
+
+            <div className="form-control">
+              <label className="label py-0.5"><span className="label-text text-xs font-medium">📤 To (Collected By)</span></label>
+              <input className="input input-bordered input-sm w-full bg-white" placeholder="e.g. Community Member, Family, Foodbank..." value={takeAllBy} onChange={e => setTakeAllBy(e.target.value)} />
+            </div>
+
+            <div className="form-control">
+              <label className="label py-0.5"><span className="label-text text-xs font-medium">✍️ Recorded By (Volunteer)</span></label>
+              <div className="flex gap-2">
+                <select className="select select-bordered select-sm bg-white flex-1" value={takeAllRecBy} onChange={e => setTakeAllRecBy(e.target.value)}>
+                  <option value="">Select volunteer...</option>
+                  {volunteers.map(v => (<option key={v.id} value={v.initials}>{v.initials} — {v.name}</option>))}
+                </select>
+                <input className="input input-bordered input-sm bg-white w-20" placeholder="Or type" value={takeAllRecBy} onChange={e => setTakeAllRecBy(e.target.value)} />
+              </div>
+            </div>
+
+            {takeAllDone ? (
+              <div className="rounded-lg bg-green-100 border border-green-300 p-3 text-sm text-green-800 font-medium text-center">
+                ✅ {takeAllDone}
+              </div>
+            ) : !takeAllConfirm ? (
+              <button
+                className={`btn btn-sm w-full text-white ${isFridge ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-700' : 'bg-cyan-600 hover:bg-cyan-700 border-cyan-700'}`}
+                onClick={() => { setTakeAllConfirm(true); takeAllTimer.current = setTimeout(() => setTakeAllConfirm(false), 5000); }}
+              >
+                <CheckCheck size={16} /> Take All {availableItems.length} Items
+              </button>
+            ) : (
+              <button
+                className="btn btn-sm w-full bg-red-500 hover:bg-red-600 border-red-600 text-white animate-pulse"
+                onClick={async () => {
+                  clearTimeout(takeAllTimer.current);
+                  const count = await onTakeAll(storage, takeAllBy.trim(), takeAllRecBy.trim(), takeAllDate);
+                  setTakeAllDone(`${count} items recorded as taken from ${isFridge ? 'Fridge' : 'Freezer'}!`);
+                  setTakeAllConfirm(false);
+                }}
+              >
+                ⚠️ CONFIRM — Take All {availableItems.length} Items Out
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Entry form */}
       {showForm && (
@@ -72,6 +180,11 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
               </div>
             ) : (
               <>
+                <div className="form-control">
+                  <label className="label py-0.5"><span className="label-text text-xs font-medium">📅 Date</span></label>
+                  <input type="date" className="input input-bordered input-sm w-full bg-white" value={dateOut} onChange={e => setDateOut(e.target.value)} />
+                </div>
+
                 <div className="form-control">
                   <label className="label py-0.5"><span className="label-text text-xs font-medium">Select Item *</span></label>
                   <select
@@ -111,6 +224,28 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
                 <div className="form-control">
                   <label className="label py-0.5"><span className="label-text text-xs font-medium">📤 To (Collected By)</span></label>
                   <input className="input input-bordered input-sm w-full bg-white" placeholder="e.g. Community Member, Family, John, Foodbank..." value={takenBy} onChange={e => setTakenBy(e.target.value)} />
+                </div>
+
+                <div className="form-control">
+                  <label className="label py-0.5"><span className="label-text text-xs font-medium">✍️ Recorded By (Volunteer)</span></label>
+                  <div className="flex gap-2">
+                    <select
+                      className="select select-bordered select-sm bg-white flex-1"
+                      value={recordedBy}
+                      onChange={e => setRecordedBy(e.target.value)}
+                    >
+                      <option value="">Select volunteer...</option>
+                      {volunteers.map(v => (
+                        <option key={v.id} value={v.initials}>{v.initials} — {v.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      className="input input-bordered input-sm bg-white w-20"
+                      placeholder="Or type"
+                      value={recordedBy}
+                      onChange={e => setRecordedBy(e.target.value)}
+                    />
+                  </div>
                 </div>
 
                 {/* Quick-take buttons */}
@@ -161,7 +296,18 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
                       </div>
                       <div className="text-xs text-base-content/60">
                         {o.date_taken} at {o.time_taken}
-                        {o.taken_by && ` · by ${o.taken_by}`}
+                        {o.taken_by && ` · to ${o.taken_by}`}
+                        {o.donor && ` · from ${o.donor}`}
+                        {o.recorded_by && ` · ✍️ ${o.recorded_by}`}
+                        {o.source === 'manual' && (
+                          <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-semibold">✋ MANUAL</span>
+                        )}
+                        {o.source === 'import' && (
+                          <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">📥 IMPORT</span>
+                        )}
+                        {o.source === 'bulk' && (
+                          <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-semibold">⚡ BULK</span>
+                        )}
                       </div>
                     </div>
                     <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDelete(o.id)}>

@@ -1,25 +1,32 @@
 import React, { useState } from 'react';
-import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem } from '../types';
-import { Plus, Trash2, ChevronUp, Snowflake, ThermometerSun } from 'lucide-react';
+import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem, Volunteer, Donor } from '../types';
+import { Plus, Trash2, ChevronUp, Snowflake, ThermometerSun, ArrowRightLeft } from 'lucide-react';
+
+const todayISO = () => new Date().toISOString().split('T')[0];
 
 interface InwardsTabProps {
   inwards: InwardItem[];
   customItems: CustomItem[];
   storage: StorageLocation;
   onStorageChange: (s: StorageLocation) => void;
-  onAdd: (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, storage: StorageLocation, enteredBy: string) => void;
+  onAdd: (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, storage: StorageLocation, enteredBy: string, overrideDate?: string) => void;
   onDelete: (id: string) => void;
+  onMove: (id: string, newStorage: StorageLocation) => void;
+  activeVolunteer: string;
+  volunteers: Volunteer[];
+  donors: Donor[];
 }
 
-export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete }) => {
+export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, activeVolunteer, volunteers, donors }) => {
   const [showForm, setShowForm] = useState(false);
   const [item, setItem] = useState('');
   const [category, setCategory] = useState('');
   const [qty, setQty] = useState(1);
   const [unit, setUnit] = useState('items');
   const [donor, setDonor] = useState('');
-  const [enteredBy, setEnteredBy] = useState('');
+  const [enteredBy, setEnteredBy] = useState(activeVolunteer);
   const [bestBefore, setBestBefore] = useState('');
+  const [dateIn, setDateIn] = useState(todayISO());
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'partial' | 'gone'>('all');
 
@@ -33,21 +40,25 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
     if (allItems[val]) setCategory(allItems[val]);
   };
 
+  const handleOpenForm = () => {
+    if (!showForm) {
+      setEnteredBy(activeVolunteer);
+      setDateIn(todayISO());
+    }
+    setShowForm(!showForm);
+  };
+
   const handleSubmit = () => {
     if (!item.trim() || qty <= 0) return;
-    let formattedBB = bestBefore;
-    if (bestBefore && bestBefore.includes('-')) {
-      const [y, m, d] = bestBefore.split('-');
-      formattedBB = `${d}/${m}/${y}`;
-    }
-    onAdd(item.trim(), category || 'Other', qty, unit, donor.trim(), formattedBB, storage, enteredBy.trim());
+    onAdd(item.trim(), category || 'Other', qty, unit, donor.trim(), bestBefore, storage, enteredBy.trim(), dateIn);
     setItem('');
     setCategory('');
     setQty(1);
     setUnit('items');
     setDonor('');
-    setEnteredBy('');
+    setEnteredBy(activeVolunteer);
     setBestBefore('');
+    setDateIn(todayISO());
     setShowForm(false);
   };
 
@@ -86,7 +97,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
       {/* Add button */}
       <button
         className={`btn btn-sm w-full ${isFridge ? 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600 text-white' : 'bg-blue-500 hover:bg-blue-600 border-blue-600 text-white'}`}
-        onClick={() => setShowForm(!showForm)}
+        onClick={handleOpenForm}
       >
         {showForm ? <ChevronUp size={16} /> : <Plus size={16} />}
         {showForm ? 'Close Form' : `Log Item Into ${isFridge ? 'Fridge' : 'Freezer'}`}
@@ -99,6 +110,11 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
             <h3 className="font-bold text-sm flex items-center gap-2">
               {isFridge ? '🧊' : '❄️'} New {isFridge ? 'Fridge' : 'Freezer'} Entry
             </h3>
+
+            <div className="form-control">
+              <label className="label py-0.5"><span className="label-text text-xs font-medium">📅 Date Received</span></label>
+              <input type="date" className="input input-bordered input-sm w-full bg-white" value={dateIn} onChange={e => setDateIn(e.target.value)} />
+            </div>
 
             <div className="form-control">
               <label className="label py-0.5"><span className="label-text text-xs font-medium">Item Name *</span></label>
@@ -137,12 +153,39 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
 
             <div className="form-control">
               <label className="label py-0.5"><span className="label-text text-xs font-medium">📥 From (Donor / Source)</span></label>
-              <input className="input input-bordered input-sm w-full bg-white" placeholder="e.g. Tesco, Lidl, Co-op, Local Bakery, Public Donation..." value={donor} onChange={e => setDonor(e.target.value)} />
+              <input
+                className="input input-bordered input-sm w-full bg-white"
+                list="donor-list"
+                placeholder="Start typing donor name..."
+                value={donor}
+                onChange={e => setDonor(e.target.value)}
+              />
+              <datalist id="donor-list">
+                {donors.map(d => <option key={d.id} value={d.name} />)}
+              </datalist>
+              <label className="label py-0"><span className="label-text-alt text-[10px] text-base-content/40">Type first few letters to search. Manage donors in Settings tab.</span></label>
             </div>
 
             <div className="form-control">
               <label className="label py-0.5"><span className="label-text text-xs font-medium">✍️ Entered By (Initials)</span></label>
-              <input className="input input-bordered input-sm w-full bg-white" placeholder="e.g. JD, SM, AB..." value={enteredBy} onChange={e => setEnteredBy(e.target.value)} />
+              <div className="flex gap-2">
+                <select
+                  className="select select-bordered select-sm bg-white flex-1"
+                  value={enteredBy}
+                  onChange={e => setEnteredBy(e.target.value)}
+                >
+                  <option value="">Select volunteer...</option>
+                  {volunteers.map(v => (
+                    <option key={v.id} value={v.initials}>{v.initials} — {v.name}</option>
+                  ))}
+                </select>
+                <input
+                  className="input input-bordered input-sm bg-white w-20"
+                  placeholder="Or type"
+                  value={enteredBy}
+                  onChange={e => setEnteredBy(e.target.value)}
+                />
+              </div>
             </div>
 
             <div className="form-control">
@@ -189,6 +232,8 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
               ? 'border-l-amber-500 bg-gradient-to-r from-amber-50/50 to-transparent'
               : 'border-l-red-500 bg-gradient-to-r from-red-50/50 to-transparent';
 
+            const moveTarget: StorageLocation = i.storage === 'fridge' ? 'freezer' : 'fridge';
+
             return (
               <div key={i.id} className={`rounded-xl border border-base-300 border-l-4 ${statusColour} overflow-hidden`}>
                 <div className="p-3">
@@ -208,11 +253,29 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                       <div className="text-xs text-base-content/60 space-y-0.5">
                         <div>{i.donor ? `From: ${i.donor}` : 'No donor'}{i.entered_by ? ` · ✍️ ${i.entered_by}` : ''} · {i.date_in} {i.time_in}</div>
                         {i.best_before && <div>📅 Best before: <span className="font-medium">{i.best_before}</span></div>}
+                        {i.moved_to && i.moved_date && (
+                          <div className="text-purple-600 font-medium">
+                            ↪ Moved to {i.moved_to === 'fridge' ? '🧊 Fridge' : '❄️ Freezer'} on {i.moved_date}
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDelete(i.id)}>
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex flex-col gap-1">
+                      {/* Move button — only for items with remaining stock */}
+                      {i.status !== 'gone' && (
+                        <button
+                          className="btn btn-ghost btn-xs text-purple-500 hover:text-purple-700 hover:bg-purple-50"
+                          onClick={() => onMove(i.id, moveTarget)}
+                          title={`Move to ${moveTarget}`}
+                        >
+                          <ArrowRightLeft size={14} />
+                          <span className="text-[10px]">{moveTarget === 'fridge' ? '🧊' : '❄️'}</span>
+                        </button>
+                      )}
+                      <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDelete(i.id)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
 
                   {/* Quantity bar */}

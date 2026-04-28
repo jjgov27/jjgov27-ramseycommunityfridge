@@ -1,40 +1,37 @@
 import React, { useState, useMemo } from 'react';
 import { FileBarChart, Download, Calendar, Filter, TrendingUp, AlertTriangle, PackagePlus, Users, ListPlus, Database } from 'lucide-react';
-import { WastageEntry, InwardItem, StorageLocation, CATEGORY_COLOURS, CustomItem, ArchivedRecord } from '../types';
+import { WastageEntry, InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS, CustomItem, ArchivedRecord, Donor } from '../types';
 
 interface Props {
   inwards: InwardItem[];
   wastage: WastageEntry[];
-  outwards: { inward_id: string; item: string; category: string; storage: StorageLocation; qty_taken: number; date_taken: string; time_taken: string; taken_by: string }[];
+  outwards: OutwardEntry[];
   storage: StorageLocation;
   onStorageChange: (s: StorageLocation) => void;
   archive: ArchivedRecord[];
   customItems: CustomItem[];
+  donors: Donor[];
 }
 
 const parseDateStr = (d: string): Date | null => {
   if (!d) return null;
-  // DD/MM/YYYY
   if (d.includes('/')) {
     const parts = d.split('/');
-    if (parts.length === 3) {
-      return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
-    }
+    if (parts.length === 3) return new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
   }
-  // YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}/.test(d)) {
     const [year, month, day] = d.split('-');
     return new Date(Number(year), Number(month) - 1, Number(day));
   }
-  // Text format: "26 Feb 2026", "1 Mar 2026", etc.
   const textDate = new Date(d);
   if (!isNaN(textDate.getTime())) return textDate;
   return null;
 };
 
 const toISODate = (d: Date) => d.toISOString().split('T')[0];
+const kgToLbs = (kg: number) => (kg * 2.20462).toFixed(1);
 
-export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storage, onStorageChange, archive, customItems }) => {
+export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storage, onStorageChange, archive, customItems, donors }) => {
   const today = new Date();
   const thirtyDaysAgo = new Date(today);
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -45,50 +42,28 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
 
   const isFullReport = reportType === 'all';
 
-  // For Full Report: reconstruct archived outwards/wastage from JSON
-  const archivedInwards = useMemo(() => {
-    return archive.map(a => ({
-      id: a.id,
-      item: a.item,
-      category: a.category,
-      qty: a.qty_in,
-      qty_in: a.qty_in,
-      unit: a.unit,
-      date: a.date_in,
-      date_in: a.date_in,
-      time: '',
-      time_in: '',
-      donor: a.donor,
-      entered_by: '',
-      expiry: a.best_before,
-      best_before: a.best_before,
-      storage: a.storage,
-      qtyRemaining: 0,
-      qty_remaining: 0,
-      totalTaken: a.total_taken,
-      total_taken: a.total_taken,
-      totalWasted: a.total_wasted,
-      total_wasted: a.total_wasted,
-      status: 'gone' as const,
-      _archived: true,
-    }));
-  }, [archive]);
+  // Reconstruct archived data
+  const archivedInwards = useMemo(() => archive.map(a => ({
+    id: a.id, item: a.item, category: a.category, qty_in: a.qty_in, unit: a.unit,
+    date_in: a.date_in, time_in: '', donor: a.donor, entered_by: '',
+    best_before: a.best_before, storage: a.storage, moved_to: '', moved_date: '',
+    qty_remaining: 0, total_taken: a.total_taken, total_wasted: a.total_wasted,
+    status: 'gone' as const, _archived: true,
+  })), [archive]);
 
   const archivedOutwards = useMemo(() => {
-    const out: { inward_id: string; item: string; category: string; storage: StorageLocation; qty_taken: number; date_taken: string; time_taken: string; taken_by: string }[] = [];
+    const out: OutwardEntry[] = [];
     archive.forEach(a => {
       try {
         const entries = JSON.parse(a.outwards_json || '[]');
         entries.forEach((e: any) => {
           out.push({
-            inward_id: e.inward_id || a.id,
-            item: a.item,
-            category: a.category,
-            storage: a.storage,
-            qty_taken: e.qty_taken || 1,
-            date_taken: e.date_taken || a.date_in,
-            time_taken: e.time_taken || '',
-            taken_by: e.taken_by || '',
+            id: e.id || 0, inward_id: e.inward_id || a.id, item: a.item,
+            category: a.category, storage: a.storage,
+            qty_taken: e.qty_taken || 1, date_taken: e.date_taken || a.date_in,
+            time_taken: e.time_taken || '', taken_by: e.taken_by || '',
+            recorded_by: e.recorded_by || '', source: e.source || 'manual',
+            donor: a.donor || '',
           });
         });
       } catch {}
@@ -103,16 +78,11 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
         const entries = JSON.parse(a.wastage_json || '[]');
         entries.forEach((e: any) => {
           wast.push({
-            id: e.id || 0,
-            inward_id: e.inward_id || a.id,
-            item: a.item,
-            category: a.category,
-            storage: a.storage,
-            qty_wasted: e.qty_wasted || 1,
-            reason: e.reason || 'Unknown',
-            date_wasted: e.date_wasted || a.date_in,
-            reported_by: e.reported_by || '',
-            notes: e.notes || '',
+            id: e.id || 0, inward_id: e.inward_id || a.id, item: a.item,
+            category: a.category, storage: a.storage,
+            qty_wasted: e.qty_wasted || 1, reason: e.reason || 'Unknown',
+            date_wasted: e.date_wasted || a.date_in, reported_by: e.reported_by || '',
+            notes: e.notes || '', weight_kg: e.weight_kg || 0, donor: a.donor || '',
           });
         });
       } catch {}
@@ -120,68 +90,47 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
     return wast;
   }, [archive]);
 
-  // Combined data (live + archived for Full Report)
   const allInwards = useMemo(() => isFullReport ? [...inwards, ...archivedInwards] : inwards, [isFullReport, inwards, archivedInwards]);
   const allOutwards = useMemo(() => isFullReport ? [...outwards, ...archivedOutwards] : outwards, [isFullReport, outwards, archivedOutwards]);
   const allWastage = useMemo(() => isFullReport ? [...wastage, ...archivedWastage] : wastage, [isFullReport, wastage, archivedWastage]);
 
-  // Filtered inwards - Full Report = both storages; otherwise filter by selected storage
-  const filteredInwards = useMemo(() => {
+  // Date filtering
+  const filterByDate = <T extends Record<string, any>>(items: T[], dateField: string) => {
     const start = new Date(startDate);
     const end = new Date(endDate);
     end.setHours(23, 59, 59);
-    return allInwards.filter(i => {
+    return items.filter(i => {
       if (!isFullReport && i.storage !== storage) return false;
-      const d = parseDateStr(i.date || i.date_in);
+      const d = parseDateStr(i[dateField]);
       if (!d) return false;
       return d >= start && d <= end;
     });
-  }, [allInwards, storage, startDate, endDate, isFullReport]);
+  };
 
-  const filteredWastage = useMemo(() => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59);
-    return allWastage.filter(w => {
-      if (!isFullReport && w.storage !== storage) return false;
-      const d = parseDateStr(w.date_wasted);
-      if (!d) return false;
-      return d >= start && d <= end;
-    });
-  }, [allWastage, storage, startDate, endDate, isFullReport]);
+  const filteredInwards = useMemo(() => filterByDate(allInwards, 'date_in'), [allInwards, storage, startDate, endDate, isFullReport]);
+  const filteredOutwards = useMemo(() => filterByDate(allOutwards, 'date_taken'), [allOutwards, storage, startDate, endDate, isFullReport]);
+  const filteredWastage = useMemo(() => filterByDate(allWastage, 'date_wasted'), [allWastage, storage, startDate, endDate, isFullReport]);
 
-  const filteredOutwards = useMemo(() => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59);
-    return allOutwards.filter(o => {
-      if (!isFullReport && o.storage !== storage) return false;
-      const d = parseDateStr(o.date_taken);
-      if (!d) return false;
-      return d >= start && d <= end;
-    });
-  }, [allOutwards, storage, startDate, endDate, isFullReport]);
+  // Build lookup for outwards/wastage linked to inwards (to track time between in and out)
+  const inwardLookup = useMemo(() => {
+    const map: Record<string, InwardItem & { _archived?: boolean }> = {};
+    allInwards.forEach(i => { map[i.id] = i; });
+    return map;
+  }, [allInwards]);
 
-  // Inwards stats
-  const totalInQty = filteredInwards.reduce((s, i) => s + (i.qty || i.qty_in || 0), 0);
+  // Stats
+  const totalInQty = filteredInwards.reduce((s, i) => s + (i.qty_in || 0), 0);
+  const totalTaken = filteredOutwards.reduce((s, o) => s + o.qty_taken, 0);
+  const totalWasted = filteredWastage.reduce((s, w) => s + w.qty_wasted, 0);
+  const totalWeightKg = filteredWastage.reduce((s, w) => s + (w.weight_kg || 0), 0);
 
+  // Inwards groupings
   const inwardsByCategory = useMemo(() => {
     const map: Record<string, { qty: number; items: string[] }> = {};
     filteredInwards.forEach(i => {
       if (!map[i.category]) map[i.category] = { qty: 0, items: [] };
-      map[i.category].qty += (i.qty || i.qty_in || 0);
+      map[i.category].qty += i.qty_in;
       if (!map[i.category].items.includes(i.item)) map[i.category].items.push(i.item);
-    });
-    return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
-  }, [filteredInwards]);
-
-  const inwardsByItem = useMemo(() => {
-    const map: Record<string, { qty: number; category: string; donors: Set<string>; storages: Set<string> }> = {};
-    filteredInwards.forEach(i => {
-      if (!map[i.item]) map[i.item] = { qty: 0, category: i.category, donors: new Set(), storages: new Set() };
-      map[i.item].qty += (i.qty || i.qty_in || 0);
-      if (i.donor) map[i.item].donors.add(i.donor);
-      map[i.item].storages.add(i.storage);
     });
     return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
   }, [filteredInwards]);
@@ -191,155 +140,115 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
     filteredInwards.forEach(i => {
       const donor = i.donor || 'Unknown';
       if (!map[donor]) map[donor] = { qty: 0, items: new Set() };
-      map[donor].qty += (i.qty || i.qty_in || 0);
+      map[donor].qty += i.qty_in;
       map[donor].items.add(i.item);
     });
     return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
   }, [filteredInwards]);
 
-  // Storage breakdown for full report
-  const inwardsByStorage = useMemo(() => {
-    if (!isFullReport) return [];
-    const map: Record<string, number> = {};
-    filteredInwards.forEach(i => {
-      const s = i.storage || 'fridge';
-      map[s] = (map[s] || 0) + (i.qty || i.qty_in || 0);
-    });
-    return Object.entries(map);
-  }, [filteredInwards, isFullReport]);
-
-  const maxInwardsQty = inwardsByItem.length > 0 ? inwardsByItem[0][1].qty : 1;
-
-  // Wastage stats
-  const wastageByCategory = useMemo(() => {
-    const map: Record<string, { qty: number; items: string[] }> = {};
-    filteredWastage.forEach(w => {
-      if (!map[w.category]) map[w.category] = { qty: 0, items: [] };
-      map[w.category].qty += w.qty_wasted;
-      if (!map[w.category].items.includes(w.item)) map[w.category].items.push(w.item);
-    });
-    return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
-  }, [filteredWastage]);
-
-  const wastageByItem = useMemo(() => {
-    const map: Record<string, { qty: number; category: string; reasons: Record<string, number> }> = {};
-    filteredWastage.forEach(w => {
-      if (!map[w.item]) map[w.item] = { qty: 0, category: w.category, reasons: {} };
-      map[w.item].qty += w.qty_wasted;
-      map[w.item].reasons[w.reason] = (map[w.item].reasons[w.reason] || 0) + w.qty_wasted;
-    });
-    return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
-  }, [filteredWastage]);
-
+  // Wastage groupings
   const wastageByReason = useMemo(() => {
     const map: Record<string, number> = {};
-    filteredWastage.forEach(w => {
-      map[w.reason] = (map[w.reason] || 0) + w.qty_wasted;
-    });
+    filteredWastage.forEach(w => { map[w.reason] = (map[w.reason] || 0) + w.qty_wasted; });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [filteredWastage]);
 
-  const totalWasted = filteredWastage.reduce((s, w) => s + w.qty_wasted, 0);
-  const totalTaken = filteredOutwards.reduce((s, o) => s + o.qty_taken, 0);
+  const wastageByItem = useMemo(() => {
+    const map: Record<string, { qty: number; category: string; weightKg: number }> = {};
+    filteredWastage.forEach(w => {
+      if (!map[w.item]) map[w.item] = { qty: 0, category: w.category, weightKg: 0 };
+      map[w.item].qty += w.qty_wasted;
+      map[w.item].weightKg += (w.weight_kg || 0);
+    });
+    return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
+  }, [filteredWastage]);
 
-  // Outwards stats
+  // Outwards groupings
   const outwardsByItem = useMemo(() => {
-    const map: Record<string, { qty: number; category: string; people: Set<string> }> = {};
+    const map: Record<string, { qty: number; category: string }> = {};
     filteredOutwards.forEach(o => {
-      if (!map[o.item]) map[o.item] = { qty: 0, category: o.category, people: new Set() };
+      if (!map[o.item]) map[o.item] = { qty: 0, category: o.category };
       map[o.item].qty += o.qty_taken;
-      if (o.taken_by) map[o.item].people.add(o.taken_by);
     });
     return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
   }, [filteredOutwards]);
 
-  // All initials/volunteers in system (live + archive)
-  const allInitials = useMemo(() => {
-    const set = new Set<string>();
-    // From live inwards entered_by
-    inwards.forEach(i => { if (i.entered_by) set.add(i.entered_by); });
-    // From live outwards taken_by
-    outwards.forEach(o => { if (o.taken_by) set.add(o.taken_by); });
-    // From live wastage reported_by
-    wastage.forEach(w => { if (w.reported_by) set.add(w.reported_by); });
-    // From archived outwards/wastage
-    archivedOutwards.forEach(o => { if (o.taken_by) set.add(o.taken_by); });
-    archivedWastage.forEach(w => { if (w.reported_by) set.add(w.reported_by); });
-    return Array.from(set).sort();
-  }, [inwards, outwards, wastage, archivedOutwards, archivedWastage]);
-
+  // CSV Download
   const downloadCSV = () => {
     let csv = '';
     const storageLabel = isFullReport ? 'All (Fridge + Freezer)' : storage;
 
     if (reportType === 'inwards' || reportType === 'all') {
-      csv += 'INWARDS REPORT\n';
+      csv += 'INWARD REPORT\n';
       csv += `Storage,${storageLabel}\n`;
       csv += `Period,${startDate} to ${endDate}\n`;
-      csv += isFullReport ? `Includes,Live + Archived data\n\n` : '\n';
-      csv += 'ID,Item,Category,Qty,Storage,Donor/Source,Entered By,Date,Time,Expiry,Status,Source\n';
+      if (isFullReport) csv += 'Includes,Live + Archived data\n';
+      csv += '\n';
+      csv += 'Date,Time,Item,Quantity,Unit,Category,Location,Moved To,Moved Date,Donor/Source,Volunteer,Best Before,Status\n';
       filteredInwards.forEach(i => {
-        const status = (i.qty_remaining ?? i.qtyRemaining ?? 0) <= 0 ? 'All Gone' : (i.total_taken ?? i.totalTaken ?? 0) > 0 || (i.total_wasted ?? i.totalWasted ?? 0) > 0 ? 'Partial' : 'Available';
-        const src = (i as any)._archived ? 'Archived' : 'Live';
-        csv += `"${i.id}","${i.item}","${i.category}",${i.qty || i.qty_in},"${i.storage}","${i.donor || ''}","${i.entered_by || ''}","${i.date || i.date_in}","${i.time || i.time_in || ''}","${i.expiry || i.best_before || ''}","${status}","${src}"\n`;
+        const status = i.qty_remaining <= 0 ? 'All Gone' : (i.total_taken > 0 || i.total_wasted > 0) ? 'Partial' : 'Available';
+        csv += `"${i.date_in}","${i.time_in || ''}","${i.item}",${i.qty_in},"${i.unit}","${i.category}","${i.storage}","${i.moved_to || ''}","${i.moved_date || ''}","${i.donor || ''}","${i.entered_by || ''}","${i.best_before || ''}","${status}"\n`;
       });
-      csv += `\nTotal Items In,,,${totalInQty}\n`;
-      csv += `Total Entries,,,${filteredInwards.length}\n\n`;
+      csv += `\nTotal Items In,,,${totalInQty}\nTotal Entries,,,${filteredInwards.length}\n\n`;
 
-      csv += 'INWARDS BY CATEGORY\n';
-      csv += 'Category,Qty,Unique Items\n';
-      inwardsByCategory.forEach(([cat, data]) => {
-        csv += `"${cat}",${data.qty},${data.items.length}\n`;
-      });
+      csv += 'INWARDS BY CATEGORY\nCategory,Qty,Unique Items\n';
+      inwardsByCategory.forEach(([cat, data]) => { csv += `"${cat}",${data.qty},${data.items.length}\n`; });
       csv += '\n';
 
-      csv += 'INWARDS BY DONOR/SOURCE\n';
-      csv += 'Donor/Source,Qty,Unique Items\n';
-      inwardsByDonor.forEach(([donor, data]) => {
-        csv += `"${donor}",${data.qty},${data.items.size}\n`;
-      });
+      csv += 'INWARDS BY DONOR/SOURCE\nDonor/Source,Qty,Unique Items\n';
+      inwardsByDonor.forEach(([donor, data]) => { csv += `"${donor}",${data.qty},${data.items.size}\n`; });
       csv += '\n';
     }
+
+    if (reportType === 'outwards' || reportType === 'all') {
+      csv += 'OUTWARD REPORT\n';
+      csv += `Storage,${storageLabel}\n`;
+      csv += `Period,${startDate} to ${endDate}\n\n`;
+      csv += 'Date,Time,Item,Quantity,Donor/Source,Volunteer,Source Type,Days In Stock\n';
+      filteredOutwards.forEach(o => {
+        const inItem = inwardLookup[o.inward_id];
+        let daysInStock = '';
+        if (inItem) {
+          const dIn = parseDateStr(inItem.date_in);
+          const dOut = parseDateStr(o.date_taken);
+          if (dIn && dOut) daysInStock = String(Math.round((dOut.getTime() - dIn.getTime()) / 86400000));
+        }
+        csv += `"${o.date_taken}","${o.time_taken}","${o.item}",${o.qty_taken},"${o.donor || ''}","${o.recorded_by || ''}","${o.source || 'manual'}","${daysInStock}"\n`;
+      });
+      csv += `\nTotal Taken,,,${totalTaken}\n\n`;
+    }
+
     if (reportType === 'wastage' || reportType === 'all') {
       csv += 'WASTAGE REPORT\n';
       csv += `Storage,${storageLabel}\n`;
       csv += `Period,${startDate} to ${endDate}\n\n`;
-      csv += 'Item,Category,Qty Wasted,Reason,Date,Notes\n';
+      csv += 'Date,Time,Item,Quantity,Weight KG,Weight lbs,Reason,Donor/Source,Volunteer,Notes\n';
       filteredWastage.forEach(w => {
-        csv += `"${w.item}","${w.category}",${w.qty_wasted},"${w.reason}","${w.date_wasted}","${w.notes || ''}"\n`;
+        const wkg = w.weight_kg || 0;
+        csv += `"${w.date_wasted}","","${w.item}",${w.qty_wasted},${wkg},${wkg > 0 ? kgToLbs(wkg) : ''},"${w.reason}","${w.donor || ''}","${w.reported_by || ''}","${w.notes || ''}"\n`;
       });
-      csv += `\nTotal Wasted,,,${totalWasted}\n\n`;
-      csv += 'WASTAGE BY CATEGORY\n';
-      csv += 'Category,Qty Wasted\n';
-      wastageByCategory.forEach(([cat, data]) => {
-        csv += `"${cat}",${data.qty}\n`;
-      });
-      csv += '\n';
+      csv += `\nTotal Wasted,,,${totalWasted}\nTotal Weight (KG),,,${totalWeightKg.toFixed(1)}\nTotal Weight (lbs),,,${kgToLbs(totalWeightKg)}\n\n`;
     }
-    if (reportType === 'outwards' || reportType === 'all') {
-      csv += 'OUTWARDS REPORT\n';
-      csv += `Storage,${storageLabel}\n`;
-      csv += `Period,${startDate} to ${endDate}\n\n`;
-      csv += 'Item,Category,Storage,Qty Taken,Taken By,Date\n';
-      filteredOutwards.forEach(o => {
-        csv += `"${o.item}","${o.category}","${o.storage}",${o.qty_taken},"${o.taken_by}","${o.date_taken}"\n`;
-      });
-      csv += `\nTotal Taken,,,${totalTaken}\n\n`;
-    }
+
     if (reportType === 'all') {
-      csv += 'ITEMS IN SYSTEM\n';
-      csv += 'Name,Category\n';
-      customItems.forEach(ci => {
-        csv += `"${ci.name}","${ci.category}"\n`;
-      });
+      csv += 'ITEMS IN SYSTEM\nName,Category\n';
+      customItems.forEach(ci => { csv += `"${ci.name}","${ci.category}"\n`; });
       csv += `\nTotal Items,${customItems.length}\n\n`;
 
-      csv += 'INITIALS / VOLUNTEERS IN SYSTEM\n';
-      csv += 'Name/Initials\n';
-      allInitials.forEach(name => {
-        csv += `"${name}"\n`;
+      csv += 'DONORS / SOURCES IN SYSTEM\nName\n';
+      donors.forEach(d => { csv += `"${d.name}"\n`; });
+      csv += `\nTotal Donors,${donors.length}\n\n`;
+
+      // Volunteer activity
+      csv += 'VOLUNTEER ACTIVITY\nVolunteer,Items In,Qty In,Items Out,Qty Out,Waste Entries,Qty Wasted,Total Actions\n';
+      const volCsvMap: Record<string, { inC: number; inQ: number; outC: number; outQ: number; wC: number; wQ: number }> = {};
+      const ensureVol = (n: string) => { if (!volCsvMap[n]) volCsvMap[n] = { inC: 0, inQ: 0, outC: 0, outQ: 0, wC: 0, wQ: 0 }; return volCsvMap[n]; };
+      filteredInwards.forEach(i => { const v = ensureVol(i.entered_by || '?'); v.inC++; v.inQ += i.qty_in; });
+      filteredOutwards.forEach(o => { const v = ensureVol(o.recorded_by || '?'); v.outC++; v.outQ += o.qty_taken; });
+      filteredWastage.forEach(w => { const v = ensureVol(w.reported_by || '?'); v.wC++; v.wQ += w.qty_wasted; });
+      Object.entries(volCsvMap).forEach(([name, d]) => {
+        csv += `"${name}",${d.inC},${d.inQ},${d.outC},${d.outQ},${d.wC},${d.wQ},${d.inC + d.outC + d.wC}\n`;
       });
-      csv += `\nTotal,${allInitials.length}\n`;
     }
 
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -351,9 +260,6 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
     URL.revokeObjectURL(url);
   };
 
-  const maxWastageQty = wastageByItem.length > 0 ? wastageByItem[0][1].qty : 1;
-  const maxOutwardsQty = outwardsByItem.length > 0 ? outwardsByItem[0][1].qty : 1;
-
   return (
     <div className="space-y-3">
       {/* Storage toggle - hidden for Full Report */}
@@ -364,7 +270,6 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
         </div>
       )}
 
-      {/* Full report banner */}
       {isFullReport && (
         <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-lg p-2 text-xs text-amber-800 flex items-center gap-2">
           <Database size={14} className="text-amber-600" />
@@ -393,8 +298,8 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Filter size={10} /> Type</label>
               <select className="select select-bordered select-xs w-full" value={reportType} onChange={e => setReportType(e.target.value as any)}>
                 <option value="inwards">📥 Inwards Only</option>
-                <option value="wastage">🗑️ Wastage Only</option>
                 <option value="outwards">📤 Outwards Only</option>
+                <option value="wastage">🗑️ Wastage Only</option>
                 <option value="all">📊 Full Report (All)</option>
               </select>
             </div>
@@ -418,16 +323,6 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
             </div>
           </div>
         )}
-        {(reportType === 'wastage' || reportType === 'all') && (
-          <div className="card bg-gradient-to-br from-red-50 to-red-100 border border-red-200">
-            <div className="card-body p-3 text-center">
-              <AlertTriangle size={16} className="text-red-500 mx-auto" />
-              <p className="text-2xl font-bold text-red-700">{totalWasted}</p>
-              <p className="text-xs text-red-500">Total Wasted</p>
-              <p className="text-xs text-red-400">{filteredWastage.length} entries</p>
-            </div>
-          </div>
-        )}
         {(reportType === 'outwards' || reportType === 'all') && (
           <div className="card bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200">
             <div className="card-body p-3 text-center">
@@ -438,61 +333,55 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
             </div>
           </div>
         )}
+        {(reportType === 'wastage' || reportType === 'all') && (
+          <div className="card bg-gradient-to-br from-red-50 to-red-100 border border-red-200">
+            <div className="card-body p-3 text-center">
+              <AlertTriangle size={16} className="text-red-500 mx-auto" />
+              <p className="text-2xl font-bold text-red-700">{totalWasted}</p>
+              <p className="text-xs text-red-500">Total Wasted</p>
+              {totalWeightKg > 0 && <p className="text-xs text-red-400">⚖️ {totalWeightKg.toFixed(1)}kg / {kgToLbs(totalWeightKg)}lbs</p>}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Storage breakdown for full report */}
-      {isFullReport && inwardsByStorage.length > 0 && (
-        <div className="card bg-base-100 border border-base-300 shadow-sm">
-          <div className="card-body p-3 space-y-2">
-            <p className="text-xs font-bold text-amber-700">📍 Inwards by Storage Location</p>
-            {inwardsByStorage.map(([loc, qty]) => (
-              <div key={loc} className="flex items-center justify-between text-xs">
-                <span className="font-medium">{loc === 'fridge' ? '🧊 Fridge' : '❄️ Freezer'}</span>
-                <span className="font-bold">{qty}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Inwards breakdown */}
+      {/* ===== INWARD REPORT — line-by-line table ===== */}
       {(reportType === 'inwards' || reportType === 'all') && (
         <>
-          {inwardsByItem.length > 0 && (
-            <div className="card bg-base-100 border border-base-300 shadow-sm">
-              <div className="card-body p-3 space-y-2">
-                <p className="text-xs font-bold text-green-700">📥 Inwards by Item {isFullReport && <span className="font-normal text-amber-600">(live + archived)</span>}</p>
-                {inwardsByItem.map(([item, data]) => {
-                  const pct = (data.qty / maxInwardsQty) * 100;
-                  const catCls = CATEGORY_COLOURS[data.category] || 'bg-gray-100 text-gray-700';
-                  return (
-                    <div key={item} className="border-l-2 border-green-300 pl-2">
-                      <div className="flex items-center justify-between text-xs mb-0.5">
-                        <div className="flex items-center gap-1 flex-wrap">
-                          <span className="font-medium">{item}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${catCls}`}>{data.category}</span>
-                          {isFullReport && data.storages.size > 0 && (
-                            <span className="text-[10px] text-base-content/40">
-                              {Array.from(data.storages).map(s => s === 'fridge' ? '🧊' : '❄️').join('')}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-green-600 font-bold">{data.qty}</span>
-                      </div>
-                      <div className="w-full bg-green-100 rounded-full h-1.5">
-                        <div className="bg-green-400 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
-                      </div>
-                      {data.donors.size > 0 && (
-                        <p className="text-[10px] text-base-content/50 mt-0.5">
-                          {data.donors.size} source{data.donors.size !== 1 ? 's' : ''}: {Array.from(data.donors).slice(0, 3).join(', ')}{data.donors.size > 3 ? '...' : ''}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+          <div className="card bg-base-100 border border-base-300 shadow-sm">
+            <div className="card-body p-3 space-y-2">
+              <p className="text-xs font-bold text-green-700">📥 Inward Report — Line by Line</p>
+              {filteredInwards.length === 0 ? (
+                <p className="text-xs text-base-content/40 text-center py-4">No inward entries in this period</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table table-xs w-full">
+                    <thead>
+                      <tr className="text-[10px]">
+                        <th>Date</th><th>Time</th><th>Item</th><th>Qty</th><th>Location</th>
+                        <th>Moved To</th><th>Moved Date</th><th>Donor</th><th>Volunteer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredInwards.map(i => (
+                        <tr key={i.id} className="text-[10px]">
+                          <td>{i.date_in}</td>
+                          <td>{i.time_in || '-'}</td>
+                          <td className="font-medium">{i.item}</td>
+                          <td>{i.qty_in} {i.unit}</td>
+                          <td>{i.storage === 'fridge' ? '🧊 Fridge' : '❄️ Freezer'}</td>
+                          <td>{i.moved_to ? (i.moved_to === 'fridge' ? '🧊 Fridge' : '❄️ Freezer') : '-'}</td>
+                          <td>{i.moved_date || '-'}</td>
+                          <td>{i.donor || '-'}</td>
+                          <td>{i.entered_by || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* By category */}
           {inwardsByCategory.length > 0 && (
@@ -521,7 +410,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
             </div>
           )}
 
-          {/* By donor/source */}
+          {/* By donor */}
           {inwardsByDonor.length > 0 && (
             <div className="card bg-base-100 border border-base-300 shadow-sm">
               <div className="card-body p-3 space-y-2">
@@ -541,20 +430,158 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               </div>
             </div>
           )}
+        </>
+      )}
 
-          {filteredInwards.length === 0 && (
-            <div className="text-center py-8 text-base-content/40">
-              <PackagePlus size={24} className="mx-auto mb-2 opacity-40" />
-              <p className="text-sm">No inward entries in this period</p>
+      {/* ===== OUTWARD REPORT — line-by-line table ===== */}
+      {(reportType === 'outwards' || reportType === 'all') && (
+        <>
+          <div className="card bg-base-100 border border-base-300 shadow-sm">
+            <div className="card-body p-3 space-y-2">
+              <p className="text-xs font-bold text-blue-700">📤 Outward Report — Line by Line</p>
+              {filteredOutwards.length === 0 ? (
+                <p className="text-xs text-base-content/40 text-center py-4">No outward entries in this period</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table table-xs w-full">
+                    <thead>
+                      <tr className="text-[10px]">
+                        <th>Date</th><th>Time</th><th>Item</th><th>Qty</th>
+                        <th>Donor</th><th>Volunteer</th><th>Source</th><th>Days In</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredOutwards.map((o, idx) => {
+                        const inItem = inwardLookup[o.inward_id];
+                        let daysInStock = '-';
+                        if (inItem) {
+                          const dIn = parseDateStr(inItem.date_in);
+                          const dOut = parseDateStr(o.date_taken);
+                          if (dIn && dOut) daysInStock = String(Math.round((dOut.getTime() - dIn.getTime()) / 86400000));
+                        }
+                        return (
+                          <tr key={`${o.id}-${idx}`} className="text-[10px]">
+                            <td>{o.date_taken}</td>
+                            <td>{o.time_taken || '-'}</td>
+                            <td className="font-medium">{o.item}</td>
+                            <td>{o.qty_taken}</td>
+                            <td>{o.donor || '-'}</td>
+                            <td>{o.recorded_by || '-'}</td>
+                            <td>
+                              {(o.source || 'manual') === 'manual' && <span className="badge badge-xs bg-green-100 text-green-700 border-green-200">✋ Manual</span>}
+                              {o.source === 'import' && <span className="badge badge-xs bg-amber-100 text-amber-700 border-amber-200">📥 Import</span>}
+                              {o.source === 'bulk' && <span className="badge badge-xs bg-purple-100 text-purple-700 border-purple-200">⚡ Bulk</span>}
+                            </td>
+                            <td>{daysInStock}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Outwards source breakdown */}
+          {filteredOutwards.length > 0 && (() => {
+            const manual = filteredOutwards.filter(o => !o.source || o.source === 'manual');
+            const imported = filteredOutwards.filter(o => o.source === 'import');
+            const bulk = filteredOutwards.filter(o => o.source === 'bulk');
+            const manualQty = manual.reduce((s, o) => s + o.qty_taken, 0);
+            const importQty = imported.reduce((s, o) => s + o.qty_taken, 0);
+            const bulkQty = bulk.reduce((s, o) => s + o.qty_taken, 0);
+            return (
+              <div className="card bg-base-100 border border-base-300 shadow-sm">
+                <div className="card-body p-3 space-y-2">
+                  <p className="text-xs font-bold text-blue-700">📊 Outwards by Source Type</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-green-50 rounded-lg p-2 text-center border border-green-200">
+                      <div className="text-lg font-bold text-green-700">{manualQty}</div>
+                      <div className="text-[10px] text-green-600">✋ Manual ({manual.length} entries)</div>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-2 text-center border border-amber-200">
+                      <div className="text-lg font-bold text-amber-700">{importQty}</div>
+                      <div className="text-[10px] text-amber-600">📥 Import ({imported.length} entries)</div>
+                    </div>
+                    <div className="bg-purple-50 rounded-lg p-2 text-center border border-purple-200">
+                      <div className="text-lg font-bold text-purple-700">{bulkQty}</div>
+                      <div className="text-[10px] text-purple-600">⚡ Bulk ({bulk.length} entries)</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Outwards by item chart */}
+          {outwardsByItem.length > 0 && (
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="text-xs font-bold text-blue-700">📤 Outwards by Item</p>
+                {outwardsByItem.map(([item, data]) => {
+                  const pct = totalTaken > 0 ? (data.qty / totalTaken) * 100 : 0;
+                  const catCls = CATEGORY_COLOURS[data.category] || 'bg-gray-100 text-gray-700';
+                  return (
+                    <div key={item} className="border-l-2 border-blue-300 pl-2">
+                      <div className="flex items-center justify-between text-xs mb-0.5">
+                        <div className="flex items-center gap-1">
+                          <span className="font-medium">{item}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${catCls}`}>{data.category}</span>
+                        </div>
+                        <span className="text-blue-600 font-bold">{data.qty}</span>
+                      </div>
+                      <div className="w-full bg-blue-100 rounded-full h-1.5">
+                        <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </>
       )}
 
-      {/* Wastage breakdown */}
+      {/* ===== WASTAGE REPORT — line-by-line table ===== */}
       {(reportType === 'wastage' || reportType === 'all') && (
         <>
-          {/* By reason */}
+          <div className="card bg-base-100 border border-base-300 shadow-sm">
+            <div className="card-body p-3 space-y-2">
+              <p className="text-xs font-bold text-red-700">🗑️ Wastage Report — Line by Line</p>
+              {filteredWastage.length === 0 ? (
+                <p className="text-xs text-base-content/40 text-center py-4">No wastage in this period — that's great! 🎉</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="table table-xs w-full">
+                    <thead>
+                      <tr className="text-[10px]">
+                        <th>Date</th><th>Item</th><th>Qty</th>
+                        <th>Weight KG</th><th>Weight lbs</th>
+                        <th>Reason</th><th>Donor</th><th>Volunteer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredWastage.map((w, idx) => (
+                        <tr key={`${w.id}-${idx}`} className="text-[10px]">
+                          <td>{w.date_wasted}</td>
+                          <td className="font-medium">{w.item}</td>
+                          <td>{w.qty_wasted}</td>
+                          <td>{w.weight_kg > 0 ? w.weight_kg.toFixed(1) : '-'}</td>
+                          <td>{w.weight_kg > 0 ? kgToLbs(w.weight_kg) : '-'}</td>
+                          <td>{w.reason}</td>
+                          <td>{w.donor || '-'}</td>
+                          <td>{w.reported_by || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Wastage by reason */}
           {wastageByReason.length > 0 && (
             <div className="card bg-base-100 border border-base-300 shadow-sm">
               <div className="card-body p-3 space-y-2">
@@ -577,155 +604,188 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
             </div>
           )}
 
-          {/* By item */}
+          {/* Wastage by item */}
           {wastageByItem.length > 0 && (
             <div className="card bg-base-100 border border-base-300 shadow-sm">
               <div className="card-body p-3 space-y-2">
                 <p className="text-xs font-bold text-red-700">🗑️ Wastage by Item</p>
                 {wastageByItem.map(([item, data]) => {
-                  const pct = (data.qty / maxWastageQty) * 100;
-                  const reasonEntries = Object.entries(data.reasons) as [string, number][];
-                  const topReason = reasonEntries.sort((a, b) => b[1] - a[1])[0];
                   const catCls = CATEGORY_COLOURS[data.category] || 'bg-gray-100 text-gray-700';
                   return (
-                    <div key={item} className="border-l-2 border-red-300 pl-2">
-                      <div className="flex items-center justify-between text-xs mb-0.5">
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium">{item}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${catCls}`}>{data.category}</span>
-                        </div>
-                        <span className="text-red-600 font-bold">{data.qty}</span>
+                    <div key={item} className="flex items-center justify-between text-xs border-l-2 border-red-300 pl-2 py-0.5">
+                      <div className="flex items-center gap-1">
+                        <span className="font-medium">{item}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${catCls}`}>{data.category}</span>
                       </div>
-                      <div className="w-full bg-red-100 rounded-full h-1.5">
-                        <div className="bg-red-400 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                      <div className="text-right">
+                        <span className="font-bold text-red-600">{data.qty}</span>
+                        {data.weightKg > 0 && <span className="text-[10px] text-red-400 ml-1">({data.weightKg.toFixed(1)}kg)</span>}
                       </div>
-                      {topReason && (
-                        <p className="text-[10px] text-base-content/50 mt-0.5">Main reason: {topReason[0]}</p>
-                      )}
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
-
-          {/* By category */}
-          {wastageByCategory.length > 0 && (
-            <div className="card bg-base-100 border border-base-300 shadow-sm">
-              <div className="card-body p-3 space-y-2">
-                <p className="text-xs font-bold text-red-700">📦 Wastage by Category</p>
-                {wastageByCategory.map(([cat, data]) => {
-                  const catCls = CATEGORY_COLOURS[cat] || 'bg-gray-100 text-gray-700';
-                  return (
-                    <div key={cat} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${catCls}`}>{cat}</span>
-                        <span className="text-base-content/50">{data.items.length} items</span>
-                      </div>
-                      <span className="font-bold text-red-600">{data.qty}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {filteredWastage.length === 0 && (
-            <div className="text-center py-8 text-base-content/40">
-              <AlertTriangle size={24} className="mx-auto mb-2 opacity-40" />
-              <p className="text-sm">No wastage recorded in this period</p>
-              <p className="text-xs">That's actually good news! 🎉</p>
             </div>
           )}
         </>
       )}
 
-      {/* Outwards breakdown */}
-      {(reportType === 'outwards' || reportType === 'all') && (
+      {/* 📉 Wastage Trends — by week and category */}
+      {(reportType === 'wastage' || reportType === 'all') && filteredWastage.length > 0 && (() => {
+        // Group wastage by week
+        const weekMap: Record<string, { total: number; weightKg: number; cats: Record<string, number> }> = {};
+        filteredWastage.forEach(w => {
+          const d = parseDateStr(w.date_wasted);
+          if (!d) return;
+          const weekStart = new Date(d);
+          weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+          const wk = `${weekStart.getDate().toString().padStart(2, '0')}/${(weekStart.getMonth() + 1).toString().padStart(2, '0')}`;
+          if (!weekMap[wk]) weekMap[wk] = { total: 0, weightKg: 0, cats: {} };
+          weekMap[wk].total += w.qty_wasted;
+          weekMap[wk].weightKg += (w.weight_kg || 0);
+          weekMap[wk].cats[w.category] = (weekMap[wk].cats[w.category] || 0) + w.qty_wasted;
+        });
+        const weeks = Object.entries(weekMap);
+        const maxWeekQty = Math.max(...weeks.map(([, d]) => d.total), 1);
+
+        // Category trend
+        const catTrend: Record<string, number> = {};
+        filteredWastage.forEach(w => { catTrend[w.category] = (catTrend[w.category] || 0) + w.qty_wasted; });
+        const catEntries = Object.entries(catTrend).sort((a, b) => b[1] - a[1]);
+        const maxCatQty = Math.max(...catEntries.map(([, q]) => q), 1);
+
+        return (
+          <>
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="text-xs font-bold text-red-700">📉 Wastage Trend by Week</p>
+                {weeks.length === 0 ? (
+                  <p className="text-xs text-base-content/40">Not enough data</p>
+                ) : (
+                  <div className="space-y-1">
+                    {weeks.map(([wk, data]) => (
+                      <div key={wk} className="flex items-center gap-2 text-xs">
+                        <span className="w-12 text-right font-mono text-[10px] text-base-content/50">w/{wk}</span>
+                        <div className="flex-1 bg-red-50 rounded-full h-4 relative overflow-hidden">
+                          <div className="bg-gradient-to-r from-red-300 to-red-500 h-4 rounded-full transition-all flex items-center justify-end pr-1" style={{ width: `${(data.total / maxWeekQty) * 100}%` }}>
+                            <span className="text-[9px] text-white font-bold">{data.total}</span>
+                          </div>
+                        </div>
+                        {data.weightKg > 0 && <span className="text-[10px] text-red-400">{data.weightKg.toFixed(1)}kg</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="text-xs font-bold text-red-700">📊 Wastage by Category — Where Are We Losing?</p>
+                <div className="space-y-1">
+                  {catEntries.map(([cat, qty]) => {
+                    const pct = (qty / maxCatQty) * 100;
+                    const catCls = CATEGORY_COLOURS[cat] || 'bg-gray-100 text-gray-700';
+                    return (
+                      <div key={cat}>
+                        <div className="flex items-center justify-between text-xs mb-0.5">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${catCls}`}>{cat}</span>
+                          <span className="font-bold text-red-600">{qty} items ({totalWasted > 0 ? ((qty / totalWasted) * 100).toFixed(0) : 0}%)</span>
+                        </div>
+                        <div className="w-full bg-red-50 rounded-full h-2">
+                          <div className="bg-red-400 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* 👥 Volunteer Activity Report */}
+      {(reportType === 'all') && (() => {
+        const volMap: Record<string, { inQty: number; inCount: number; outQty: number; outCount: number; wasteQty: number; wasteCount: number }> = {};
+        const addVol = (name: string) => {
+          if (!volMap[name]) volMap[name] = { inQty: 0, inCount: 0, outQty: 0, outCount: 0, wasteQty: 0, wasteCount: 0 };
+          return volMap[name];
+        };
+        filteredInwards.forEach(i => { const v = addVol(i.entered_by || '?'); v.inCount++; v.inQty += i.qty_in; });
+        filteredOutwards.forEach(o => { const v = addVol(o.recorded_by || '?'); v.outCount++; v.outQty += o.qty_taken; });
+        filteredWastage.forEach(w => { const v = addVol(w.reported_by || '?'); v.wasteCount++; v.wasteQty += w.qty_wasted; });
+        const vols = Object.entries(volMap).sort((a, b) => (b[1].inCount + b[1].outCount + b[1].wasteCount) - (a[1].inCount + a[1].outCount + a[1].wasteCount));
+        if (vols.length === 0) return null;
+        return (
+          <div className="card bg-base-100 border border-base-300 shadow-sm">
+            <div className="card-body p-3 space-y-2">
+              <p className="text-xs font-bold text-violet-700">👥 Volunteer Activity Report</p>
+              <div className="overflow-x-auto">
+                <table className="table table-xs w-full">
+                  <thead>
+                    <tr className="text-[10px]">
+                      <th>Volunteer</th>
+                      <th className="text-center">📥 Items In</th><th className="text-center">Qty In</th>
+                      <th className="text-center">📤 Items Out</th><th className="text-center">Qty Out</th>
+                      <th className="text-center">🗑️ Waste</th><th className="text-center">Qty Waste</th>
+                      <th className="text-center">Total Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vols.map(([name, d]) => (
+                      <tr key={name} className="text-[10px]">
+                        <td className="font-medium">{name}</td>
+                        <td className="text-center">{d.inCount}</td><td className="text-center font-bold text-green-600">{d.inQty}</td>
+                        <td className="text-center">{d.outCount}</td><td className="text-center font-bold text-blue-600">{d.outQty}</td>
+                        <td className="text-center">{d.wasteCount}</td><td className="text-center font-bold text-red-600">{d.wasteQty}</td>
+                        <td className="text-center font-bold">{d.inCount + d.outCount + d.wasteCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Full report extras */}
+      {isFullReport && (
         <>
-          {outwardsByItem.length > 0 && (
-            <div className="card bg-base-100 border border-base-300 shadow-sm">
-              <div className="card-body p-3 space-y-2">
-                <p className="text-xs font-bold text-blue-700">📤 Items Taken by Item</p>
-                {outwardsByItem.map(([item, data]) => {
-                  const pct = (data.qty / maxOutwardsQty) * 100;
-                  const catCls = CATEGORY_COLOURS[data.category] || 'bg-gray-100 text-gray-700';
-                  return (
-                    <div key={item} className="border-l-2 border-blue-300 pl-2">
-                      <div className="flex items-center justify-between text-xs mb-0.5">
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium">{item}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${catCls}`}>{data.category}</span>
-                        </div>
-                        <span className="text-blue-600 font-bold">{data.qty}</span>
-                      </div>
-                      <div className="w-full bg-blue-100 rounded-full h-1.5">
-                        <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
-                      </div>
-                      <p className="text-[10px] text-base-content/50 mt-0.5">{data.people.size} unique collector{data.people.size !== 1 ? 's' : ''}</p>
-                    </div>
-                  );
-                })}
+          <div className="card bg-base-100 border border-base-300 shadow-sm">
+            <div className="card-body p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-purple-700 flex items-center gap-1"><ListPlus size={12} /> Items in System</p>
+                <span className="badge badge-sm badge-ghost">{customItems.length}</span>
               </div>
+              {customItems.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {customItems.map(ci => {
+                    const catCls = CATEGORY_COLOURS[ci.category] || 'bg-gray-100 text-gray-700';
+                    return <span key={ci.id} className={`text-[10px] px-1.5 py-0.5 rounded-full border ${catCls}`}>{ci.name}</span>;
+                  })}
+                </div>
+              ) : <p className="text-xs text-base-content/40">No custom items added yet</p>}
             </div>
-          )}
+          </div>
 
-          {filteredOutwards.length === 0 && (
-            <div className="text-center py-8 text-base-content/40">
-              <TrendingUp size={24} className="mx-auto mb-2 opacity-40" />
-              <p className="text-sm">No outward entries in this period</p>
+          <div className="card bg-base-100 border border-base-300 shadow-sm">
+            <div className="card-body p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-orange-700 flex items-center gap-1">🏪 Donors / Sources</p>
+                <span className="badge badge-sm badge-ghost">{donors.length}</span>
+              </div>
+              {donors.length > 0 ? (
+                <div className="flex flex-wrap gap-1">
+                  {donors.map(d => (
+                    <span key={d.id} className="text-[10px] px-2 py-0.5 rounded-full border bg-orange-50 text-orange-700 border-orange-200 font-medium">{d.name}</span>
+                  ))}
+                </div>
+              ) : <p className="text-xs text-base-content/40">No donors added yet</p>}
             </div>
-          )}
+          </div>
         </>
-      )}
-
-      {/* Items in system - Full Report only */}
-      {isFullReport && (
-        <div className="card bg-base-100 border border-base-300 shadow-sm">
-          <div className="card-body p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-purple-700 flex items-center gap-1"><ListPlus size={12} /> Items in System</p>
-              <span className="badge badge-sm badge-ghost">{customItems.length}</span>
-            </div>
-            {customItems.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {customItems.map(ci => {
-                  const catCls = CATEGORY_COLOURS[ci.category] || 'bg-gray-100 text-gray-700';
-                  return (
-                    <span key={ci.id} className={`text-[10px] px-1.5 py-0.5 rounded-full border ${catCls}`}>
-                      {ci.name}
-                    </span>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-xs text-base-content/40">No custom items added yet</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Initials/Volunteers - Full Report only */}
-      {isFullReport && (
-        <div className="card bg-base-100 border border-base-300 shadow-sm">
-          <div className="card-body p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-indigo-700 flex items-center gap-1"><Users size={12} /> Initials / Volunteers in System</p>
-              <span className="badge badge-sm badge-ghost">{allInitials.length}</span>
-            </div>
-            {allInitials.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {allInitials.map(name => (
-                  <span key={name} className="text-[10px] px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200 font-medium">
-                    {name}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-base-content/40">No initials recorded yet</p>
-            )}
-          </div>
-        </div>
       )}
     </div>
   );
