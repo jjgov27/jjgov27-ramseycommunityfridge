@@ -20,14 +20,14 @@ import { HistoryTab } from './components/HistoryTab';
 import { AdminTab } from './components/AdminTab';
 
 const TABS: { id: TabName; label: string; icon: React.ReactNode }[] = [
-  { id: 'dashboard', label: 'Home', icon: <LayoutDashboard size={14} /> },
-  { id: 'inwards', label: 'In', icon: <ArrowDownToLine size={14} /> },
-  { id: 'outwards', label: 'Out', icon: <ArrowUpFromLine size={14} /> },
-  { id: 'wastage', label: 'Waste', icon: <Trash2 size={14} /> },
-  { id: 'items', label: 'Settings', icon: <ListPlus size={14} /> },
-  { id: 'reports', label: 'Reports', icon: <FileBarChart size={14} /> },
-  { id: 'history', label: 'History', icon: <Archive size={14} /> },
-  { id: 'admin', label: 'Admin', icon: <Shield size={14} /> },
+  { id: 'dashboard', label: 'Home', icon: <LayoutDashboard size={16} /> },
+  { id: 'inwards', label: 'In', icon: <ArrowDownToLine size={16} /> },
+  { id: 'outwards', label: 'Out', icon: <ArrowUpFromLine size={16} /> },
+  { id: 'wastage', label: 'Waste', icon: <Trash2 size={16} /> },
+  { id: 'items', label: 'Settings', icon: <ListPlus size={16} /> },
+  { id: 'reports', label: 'Reports', icon: <FileBarChart size={16} /> },
+  { id: 'history', label: 'History', icon: <Archive size={16} /> },
+  { id: 'admin', label: 'Admin', icon: <Shield size={16} /> },
 ];
 
 const App: React.FC = () => {
@@ -210,23 +210,31 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {/* Animated login prompt when no volunteer selected */}
+          {!activeVolunteer && (
+            <div className="flex items-center gap-1 mr-1 animate-bounce">
+              <span className="text-2xl">👉</span>
+              <span className="text-yellow-200 text-base font-extrabold whitespace-nowrap">Log in here</span>
+              <span className="text-yellow-200 text-2xl font-bold">→</span>
+            </div>
+          )}
           {/* Volunteer session selector */}
-          <div className="flex items-center gap-1 bg-white/15 rounded-lg px-2 py-1">
-            <User size={12} className="text-white/70" />
+          <div className={`flex items-center gap-1 rounded-lg px-2 py-1 transition-all ${!activeVolunteer ? 'bg-yellow-400/30 ring-2 ring-yellow-300 animate-pulse' : 'bg-white/15'}`}>
+            <User size={12} className={!activeVolunteer ? 'text-yellow-200' : 'text-white/70'} />
             <select
               className="bg-transparent text-white text-xs border-none outline-none cursor-pointer appearance-none pr-3"
               value={activeVolunteer}
               onChange={e => setActiveVolunteer(e.target.value)}
               style={{ backgroundImage: 'none' }}
             >
-              <option value="" className="text-gray-800">No volunteer</option>
+              <option value="" className="text-gray-800">Select volunteer...</option>
               {volunteers.map(v => (
                 <option key={v.id} value={v.initials} className="text-gray-800">
                   {v.initials} — {v.name}
                 </option>
               ))}
             </select>
-            <span className="text-white/40 text-xs">▾</span>
+            <span className={`text-xs ${!activeVolunteer ? 'text-yellow-200' : 'text-white/40'}`}>▾</span>
           </div>
           {/* Archive button in header */}
           {completedCount > 0 && (
@@ -260,14 +268,14 @@ const App: React.FC = () => {
       )}
 
       {/* Tab navigation */}
-      <div className="flex bg-base-200 border-b border-base-300 px-1 py-1 gap-0.5 overflow-x-auto">
+      <div className="flex bg-base-200 border-b border-base-300 px-1 py-1.5 gap-0.5 overflow-x-auto">
         {TABS.map(t => (
           <button
             key={t.id}
-            className={`flex-1 flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-medium transition-all min-w-0 ${
+            className={`flex-1 flex items-center justify-center gap-1 py-2.5 rounded-lg text-sm transition-all min-w-0 ${
               tab === t.id
-                ? 'bg-white shadow-sm text-emerald-700 font-bold'
-                : 'text-base-content/50 hover:bg-base-300'
+                ? 'bg-white shadow-md text-emerald-700 font-extrabold border border-emerald-200'
+                : 'text-gray-700 font-semibold hover:bg-base-300 hover:text-gray-900'
             }`}
             onClick={() => setTab(t.id)}
           >
