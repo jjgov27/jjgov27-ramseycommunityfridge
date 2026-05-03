@@ -24,6 +24,7 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
   const [takeAllDate, setTakeAllDate] = useState(todayISO());
   const [takeAllConfirm, setTakeAllConfirm] = useState(false);
   const [takeAllDone, setTakeAllDone] = useState('');
+  const [takeAllError, setTakeAllError] = useState('');
   const takeAllTimer = useRef<any>(null);
   const [selectedId, setSelectedId] = useState('');
   const [qtyTaken, setQtyTaken] = useState(1);
@@ -86,7 +87,7 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
         </button>
         <button
           className={`btn btn-sm text-white ${availableItems.length === 0 ? 'btn-disabled' : isFridge ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-700' : 'bg-cyan-600 hover:bg-cyan-700 border-cyan-700'}`}
-          onClick={() => { setShowTakeAll(!showTakeAll); setShowForm(false); setTakeAllConfirm(false); setTakeAllDone(''); setTakeAllRecBy(activeVolunteer); setTakeAllDate(todayISO()); }}
+          onClick={() => { setShowTakeAll(!showTakeAll); setShowForm(false); setTakeAllConfirm(false); setTakeAllDone(''); setTakeAllError(''); setTakeAllRecBy(activeVolunteer); setTakeAllDate(todayISO()); }}
         >
           <CheckCheck size={16} />
           {showTakeAll ? 'Close' : `Take All (${availableItems.length})`}
@@ -94,7 +95,7 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
       </div>
 
       {/* Take All panel */}
-      {showTakeAll && availableItems.length > 0 && (
+      {showTakeAll && (availableItems.length > 0 || takeAllDone || takeAllError) && (
         <div className={`rounded-xl border-2 ${isFridge ? 'border-emerald-200 bg-emerald-50/50' : 'border-cyan-200 bg-cyan-50/50'}`}>
           <div className="p-4 space-y-3">
             <h3 className="font-bold text-sm flex items-center gap-2">
@@ -140,6 +141,12 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
               </div>
             </div>
 
+            {takeAllError && (
+              <div className="rounded-lg bg-red-100 border border-red-300 p-3 text-sm text-red-800 font-medium text-center">
+                ❌ {takeAllError}
+              </div>
+            )}
+
             {takeAllDone ? (
               <div className="rounded-lg bg-green-100 border border-green-300 p-3 text-sm text-green-800 font-medium text-center">
                 ✅ {takeAllDone}
@@ -156,9 +163,15 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
                 className="btn btn-sm w-full bg-red-500 hover:bg-red-600 border-red-600 text-white animate-pulse"
                 onClick={async () => {
                   clearTimeout(takeAllTimer.current);
-                  const count = await onTakeAll(storage, takeAllBy.trim(), takeAllRecBy.trim(), takeAllDate);
-                  setTakeAllDone(`${count} items recorded as taken from ${isFridge ? 'Fridge' : 'Freezer'}!`);
-                  setTakeAllConfirm(false);
+                  setTakeAllError('');
+                  try {
+                    const count = await onTakeAll(storage, takeAllBy.trim(), takeAllRecBy.trim(), takeAllDate);
+                    setTakeAllDone(`${count} items recorded as taken from ${isFridge ? 'Fridge' : 'Freezer'}!`);
+                    setTakeAllConfirm(false);
+                  } catch (err: any) {
+                    setTakeAllError(`Failed: ${err?.message || 'Unknown error'}`);
+                    setTakeAllConfirm(false);
+                  }
                 }}
               >
                 ⚠️ CONFIRM — Take All {availableItems.length} Items Out

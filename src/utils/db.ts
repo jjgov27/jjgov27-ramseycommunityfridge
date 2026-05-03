@@ -478,15 +478,10 @@ export async function quickTakeAllAvailable(
     : now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   const timeTaken = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-  const BATCH = 10;
-  for (let i = 0; i < available.length; i += BATCH) {
-    const chunk = available.slice(i, i + BATCH);
-    const values = chunk.map(item =>
-      `('${esc(item.id)}', ${item.qty_remaining}, '${esc(dateTaken)}', '${esc(timeTaken)}', '${esc(takenBy)}', '${esc(recordedBy)}', 'manual')`
-    ).join(',\n');
+  for (const item of available) {
     await window.tasklet.sqlExec(`
       INSERT INTO cf_outwards (inward_id, qty_taken, date_taken, time_taken, taken_by, recorded_by, source)
-      VALUES ${values}
+      VALUES ('${esc(item.id)}', ${item.qty_remaining}, '${esc(dateTaken)}', '${esc(timeTaken)}', '${esc(takenBy)}', '${esc(recordedBy)}', 'manual')
     `);
   }
 
