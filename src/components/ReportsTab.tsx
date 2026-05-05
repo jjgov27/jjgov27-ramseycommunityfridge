@@ -38,7 +38,11 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
 
   const [startDate, setStartDate] = useState(toISODate(thirtyDaysAgo));
   const [endDate, setEndDate] = useState(toISODate(today));
-  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all'>('inwards');
+  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly'>('inwards');
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
 
   const isFullReport = reportType === 'all';
 
@@ -286,14 +290,18 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <div className="flex-1 min-w-[120px]">
-              <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Calendar size={10} /> From</label>
-              <input type="date" className="input input-bordered input-xs w-full" value={startDate} onChange={e => setStartDate(e.target.value)} />
-            </div>
-            <div className="flex-1 min-w-[120px]">
-              <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Calendar size={10} /> To</label>
-              <input type="date" className="input input-bordered input-xs w-full" value={endDate} onChange={e => setEndDate(e.target.value)} />
-            </div>
+            {reportType !== 'monthly' && (
+              <>
+                <div className="flex-1 min-w-[120px]">
+                  <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Calendar size={10} /> From</label>
+                  <input type="date" className="input input-bordered input-xs w-full" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Calendar size={10} /> To</label>
+                  <input type="date" className="input input-bordered input-xs w-full" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                </div>
+              </>
+            )}
             <div className="flex-1 min-w-[120px]">
               <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Filter size={10} /> Type</label>
               <select className="select select-bordered select-xs w-full" value={reportType} onChange={e => setReportType(e.target.value as any)}>
@@ -301,13 +309,16 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                 <option value="outwards">📤 Outwards Only</option>
                 <option value="wastage">🗑️ Wastage Only</option>
                 <option value="all">📊 Full Report (All)</option>
+                <option value="monthly">🥧 Monthly Pie Charts</option>
               </select>
             </div>
           </div>
 
-          <button className="btn btn-xs btn-primary gap-1" onClick={downloadCSV}>
-            <Download size={12} /> Download CSV
-          </button>
+          {reportType !== 'monthly' && (
+            <button className="btn btn-xs btn-primary gap-1" onClick={downloadCSV}>
+              <Download size={12} /> Download CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -706,6 +717,209 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       })()}
 
       {/* 👥 Volunteer Activity Report */}
+      {/* ===== MONTHLY PIE CHARTS ===== */}
+      {reportType === 'monthly' && (() => {
+        // Get all months available
+        const allItems = [...inwards, ...archivedInwards];
+        const monthlyItems = allItems.filter(i => {
+          const d = parseDateStr(i.date_in);
+          if (!d) return false;
+          const m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          return m === selectedMonth;
+        });
+
+        const monthLabel = (() => {
+          const [y, m] = selectedMonth.split('-');
+          const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+          return `${months[Number(m) - 1]} ${y}`;
+        })();
+
+        // Aggregate by donor
+        const donorTotals: Record<string, number> = {};
+        monthlyItems.forEach(i => {
+          const d = i.donor || 'Unknown';
+          donorTotals[d] = (donorTotals[d] || 0) + i.qty_in;
+        });
+        const donorData = Object.entries(donorTotals).sort((a, b) => b[1] - a[1]);
+        const donorTotal = donorData.reduce((s, [, v]) => s + v, 0);
+
+        // Aggregate by category
+        const catTotals: Record<string, number> = {};
+        monthlyItems.forEach(i => {
+          const c = i.category || 'Unknown';
+          catTotals[c] = (catTotals[c] || 0) + i.qty_in;
+        });
+        const catData = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
+        const catTotal = catData.reduce((s, [, v]) => s + v, 0);
+
+        // Pie chart colours
+        const PIE_COLOURS = ['#6366f1','#f59e0b','#10b981','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#06b6d4','#84cc16','#d946ef','#0ea5e9'];
+        const CAT_PIE_COLOURS: Record<string, string> = {
+          'Meat': '#ef4444', 'Dairy': '#3b82f6', 'Bakery': '#f59e0b', 'Vegetables': '#10b981',
+          'Ready Meals': '#8b5cf6', 'Fruit': '#84cc16', 'Condiments': '#eab308', 'Chilled': '#06b6d4', 'Unknown': '#9ca3af'
+        };
+
+        // SVG pie chart renderer
+        const renderPie = (data: [string, number][], total: number, colours: (i: number, label: string) => string) => {
+          if (total === 0) return <p className="text-sm text-base-content/50 text-center py-8">No data for this month</p>;
+          const size = 200;
+          const cx = size / 2, cy = size / 2, r = 80;
+          let cumAngle = -Math.PI / 2;
+
+          const slices = data.map(([label, value], idx) => {
+            const angle = (value / total) * Math.PI * 2;
+            const x1 = cx + r * Math.cos(cumAngle);
+            const y1 = cy + r * Math.sin(cumAngle);
+            const x2 = cx + r * Math.cos(cumAngle + angle);
+            const y2 = cy + r * Math.sin(cumAngle + angle);
+            const largeArc = angle > Math.PI ? 1 : 0;
+            const pathD = value === total
+              ? `M ${cx},${cy - r} A ${r},${r} 0 1,1 ${cx - 0.001},${cy - r} Z`
+              : `M ${cx},${cy} L ${x1},${y1} A ${r},${r} 0 ${largeArc},1 ${x2},${y2} Z`;
+            const colour = colours(idx, label);
+            cumAngle += angle;
+            return <path key={label} d={pathD} fill={colour} stroke="white" strokeWidth="2" />;
+          });
+
+          return (
+            <div className="flex flex-col items-center gap-3">
+              <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{slices}</svg>
+              <div className="flex flex-wrap gap-2 justify-center">
+                {data.map(([label, value], idx) => (
+                  <div key={label} className="flex items-center gap-1.5 text-xs">
+                    <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: colours(idx, label) }} />
+                    <span className="font-medium">{label}</span>
+                    <span className="text-base-content/50">({value} — {((value / total) * 100).toFixed(0)}%)</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        };
+
+        // Get available months for selector
+        const availableMonths = [...new Set(allItems.map(i => {
+          const d = parseDateStr(i.date_in);
+          if (!d) return null;
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        }).filter(Boolean) as string[])].sort().reverse();
+
+        return (
+          <div className="space-y-4 print-section" id="monthly-charts">
+            {/* Month selector */}
+            <div className="card bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 shadow-sm">
+              <div className="card-body p-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🥧</span>
+                    <span className="font-bold text-sm text-indigo-800">Monthly Summary — {monthLabel}</span>
+                    <span className="badge badge-sm badge-primary">{monthlyItems.length} items</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select className="select select-bordered select-xs" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}>
+                      {availableMonths.map(m => {
+                        const [y, mo] = m.split('-');
+                        const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                        return <option key={m} value={m}>{months[Number(mo) - 1]} {y}</option>;
+                      })}
+                    </select>
+                    <button className="btn btn-xs btn-outline gap-1" onClick={() => window.print()}>🖨️ Print</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="card bg-blue-50 border border-blue-200 p-3 text-center">
+                <p className="text-2xl font-black text-blue-700">{donorTotal}</p>
+                <p className="text-[10px] text-blue-600 font-medium">Total Items In</p>
+              </div>
+              <div className="card bg-green-50 border border-green-200 p-3 text-center">
+                <p className="text-2xl font-black text-green-700">{donorData.length}</p>
+                <p className="text-[10px] text-green-600 font-medium">Donors Active</p>
+              </div>
+              <div className="card bg-purple-50 border border-purple-200 p-3 text-center">
+                <p className="text-2xl font-black text-purple-700">{catData.length}</p>
+                <p className="text-[10px] text-purple-600 font-medium">Categories</p>
+              </div>
+              <div className="card bg-amber-50 border border-amber-200 p-3 text-center">
+                <p className="text-2xl font-black text-amber-700">{monthlyItems.length}</p>
+                <p className="text-[10px] text-amber-600 font-medium">Deliveries</p>
+              </div>
+            </div>
+
+            {/* Donor Pie Chart */}
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🏪</span>
+                  <span className="font-bold text-sm">Items by Donor</span>
+                  <span className="badge badge-xs badge-ghost">{donorTotal} total</span>
+                </div>
+                {renderPie(donorData, donorTotal, (i) => PIE_COLOURS[i % PIE_COLOURS.length])}
+              </div>
+            </div>
+
+            {/* Category Pie Chart */}
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">📦</span>
+                  <span className="font-bold text-sm">Items by Category</span>
+                  <span className="badge badge-xs badge-ghost">{catTotal} total</span>
+                </div>
+                {renderPie(catData, catTotal, (_, label) => CAT_PIE_COLOURS[label] || '#9ca3af')}
+              </div>
+            </div>
+
+            {/* Donor Table */}
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="font-bold text-xs text-indigo-700">📋 Donor Breakdown — {monthLabel}</p>
+                <div className="overflow-x-auto">
+                  <table className="table table-xs w-full">
+                    <thead><tr className="bg-indigo-50"><th>Donor</th><th className="text-right">Qty</th><th className="text-right">%</th><th>Items</th></tr></thead>
+                    <tbody>
+                      {donorData.map(([donor, qty]) => (
+                        <tr key={donor} className="hover">
+                          <td className="font-medium text-xs">{donor}</td>
+                          <td className="text-right text-xs font-bold">{qty}</td>
+                          <td className="text-right text-xs text-base-content/60">{((qty / donorTotal) * 100).toFixed(0)}%</td>
+                          <td className="text-[10px] text-base-content/50">{monthlyItems.filter(i => (i.donor || 'Unknown') === donor).map(i => i.item).filter((v, i, a) => a.indexOf(v) === i).join(', ')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Category Table */}
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="font-bold text-xs text-emerald-700">📋 Category Breakdown — {monthLabel}</p>
+                <div className="overflow-x-auto">
+                  <table className="table table-xs w-full">
+                    <thead><tr className="bg-emerald-50"><th>Category</th><th className="text-right">Qty</th><th className="text-right">%</th><th>Items</th></tr></thead>
+                    <tbody>
+                      {catData.map(([cat, qty]) => (
+                        <tr key={cat} className="hover">
+                          <td className="text-xs"><span className="px-1.5 py-0.5 rounded text-white text-[10px] font-bold" style={{ backgroundColor: CAT_PIE_COLOURS[cat] || '#9ca3af' }}>{cat}</span></td>
+                          <td className="text-right text-xs font-bold">{qty}</td>
+                          <td className="text-right text-xs text-base-content/60">{((qty / catTotal) * 100).toFixed(0)}%</td>
+                          <td className="text-[10px] text-base-content/50">{monthlyItems.filter(i => (i.category || 'Unknown') === cat).map(i => i.item).filter((v, i, a) => a.indexOf(v) === i).join(', ')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {(reportType === 'all') && (() => {
         const volMap: Record<string, { inQty: number; inCount: number; outQty: number; outCount: number; wasteQty: number; wasteCount: number }> = {};
         const addVol = (name: string) => {
