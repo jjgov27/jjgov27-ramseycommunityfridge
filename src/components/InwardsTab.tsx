@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem, Volunteer, Donor } from '../types';
-import { Plus, Trash2, ChevronUp, Snowflake, ThermometerSun, ArrowRightLeft } from 'lucide-react';
+import { Plus, Trash2, ChevronUp, Snowflake, ThermometerSun, ArrowRightLeft, Pencil, Check, X } from 'lucide-react';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 
@@ -12,12 +12,13 @@ interface InwardsTabProps {
   onAdd: (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, storage: StorageLocation, enteredBy: string, overrideDate?: string) => void;
   onDelete: (id: string) => void;
   onMove: (id: string, newStorage: StorageLocation) => void;
+  onEdit: (id: string, fields: { item?: string; category?: string; qty_in?: number; donor?: string; best_before?: string; entered_by?: string }) => void;
   activeVolunteer: string;
   volunteers: Volunteer[];
   donors: Donor[];
 }
 
-export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, activeVolunteer, volunteers, donors }) => {
+export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, onEdit, activeVolunteer, volunteers, donors }) => {
   const [showForm, setShowForm] = useState(false);
   const [item, setItem] = useState('');
   const [category, setCategory] = useState('');
@@ -28,6 +29,29 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
   const [bestBefore, setBestBefore] = useState('');
   const [dateIn, setDateIn] = useState(todayISO());
   const [search, setSearch] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editItem, setEditItem] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editQty, setEditQty] = useState(1);
+  const [editDonor, setEditDonor] = useState('');
+  const [editBestBefore, setEditBestBefore] = useState('');
+  const [editEnteredBy, setEditEnteredBy] = useState('');
+
+  const startEdit = (i: InwardItem) => {
+    setEditingId(i.id);
+    setEditItem(i.item);
+    setEditCategory(i.category);
+    setEditQty(i.qty_in);
+    setEditDonor(i.donor);
+    setEditBestBefore(i.best_before);
+    setEditEnteredBy(i.entered_by || '');
+  };
+
+  const saveEdit = () => {
+    if (!editingId) return;
+    onEdit(editingId, { item: editItem, category: editCategory, qty_in: editQty, donor: editDonor, best_before: editBestBefore, entered_by: editEnteredBy });
+    setEditingId(null);
+  };
   const [filterStatus, setFilterStatus] = useState<'all' | 'available' | 'partial' | 'gone'>('all');
 
   // Merge built-in + custom items
@@ -237,6 +261,48 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
             return (
               <div key={i.id} className={`rounded-xl border border-base-300 border-l-4 ${statusColour} overflow-hidden`}>
                 <div className="p-3">
+                  {editingId === i.id ? (
+                    /* ===== INLINE EDIT MODE ===== */
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-mono text-xs bg-base-200 px-1.5 py-0.5 rounded">{i.id}</span>
+                        <span className="text-xs font-bold text-blue-600">✏️ Editing</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-base-content/50 font-medium">Item Name</label>
+                          <input className="input input-bordered input-xs w-full" value={editItem} onChange={e => setEditItem(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-base-content/50 font-medium">Category</label>
+                          <select className="select select-bordered select-xs w-full" value={editCategory} onChange={e => setEditCategory(e.target.value)}>
+                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-base-content/50 font-medium">Quantity</label>
+                          <input type="number" className="input input-bordered input-xs w-full" min={1} value={editQty} onChange={e => setEditQty(Number(e.target.value))} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-base-content/50 font-medium">Donor</label>
+                          <input className="input input-bordered input-xs w-full" value={editDonor} onChange={e => setEditDonor(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-base-content/50 font-medium">Best Before</label>
+                          <input className="input input-bordered input-xs w-full" value={editBestBefore} onChange={e => setEditBestBefore(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-base-content/50 font-medium">Entered By</label>
+                          <input className="input input-bordered input-xs w-full" value={editEnteredBy} onChange={e => setEditEnteredBy(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button className="btn btn-success btn-xs gap-1" onClick={saveEdit}><Check size={12} /> Save</button>
+                        <button className="btn btn-ghost btn-xs gap-1" onClick={() => setEditingId(null)}><X size={12} /> Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ===== NORMAL VIEW MODE ===== */
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -261,7 +327,9 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                       </div>
                     </div>
                     <div className="flex flex-col gap-1">
-                      {/* Move button — only for items with remaining stock */}
+                      <button className="btn btn-ghost btn-xs text-blue-400 hover:text-blue-600 hover:bg-blue-50" onClick={() => startEdit(i)} title="Edit">
+                        <Pencil size={14} />
+                      </button>
                       {i.status !== 'gone' && (
                         <button
                           className="btn btn-ghost btn-xs text-purple-500 hover:text-purple-700 hover:bg-purple-50"
@@ -277,6 +345,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                       </button>
                     </div>
                   </div>
+                  )}
 
                   {/* Quantity bar */}
                   <div className="mt-2">

@@ -8,7 +8,8 @@ import {
   archiveCompletedItems, loadArchive, deleteArchiveItem,
   clearAllData, clearArchive, clearEverything, importInwardsFromCSV, importOutwardsFromCSV, importWastageFromCSV, importCustomItems,
   loadVolunteers, addVolunteer, deleteVolunteer, importVolunteers, bulkInwardsToOutwards,
-  loadDonors, addDonor, deleteDonor, importDonors, moveInwardItem, quickTakeAllAvailable
+  loadDonors, addDonor, deleteDonor, importDonors, moveInwardItem, quickTakeAllAvailable,
+  updateInward, updateOutward
 } from './utils/db';
 import { Dashboard } from './components/Dashboard';
 import { InwardsTab } from './components/InwardsTab';
@@ -125,6 +126,16 @@ const App: React.FC = () => {
   const handleDeleteOutward = async (id: number) => { await deleteOutward(id); await refresh(); };
   const handleDeleteWastage = async (id: number) => { await deleteWastage(id); await refresh(); };
   const handleDeleteInward = async (id: string) => { await deleteInward(id); await refresh(); };
+
+  const handleEditInward = async (id: string, fields: { item?: string; category?: string; qty_in?: number; donor?: string; best_before?: string; entered_by?: string }) => {
+    await updateInward(id, fields);
+    await refresh();
+  };
+
+  const handleEditOutward = async (id: number, fields: { qty_taken?: number; taken_by?: string; recorded_by?: string }) => {
+    await updateOutward(id, fields);
+    await refresh();
+  };
 
   const handleAddCustomItem = async (name: string, category: string) => {
     await addCustomItem(name, category);
@@ -300,7 +311,7 @@ const App: React.FC = () => {
             inwards={inwards} customItems={customItems}
             storage={storage} onStorageChange={setStorage}
             onAdd={handleAddInward} onDelete={handleDeleteInward}
-            onMove={handleMoveItem}
+            onMove={handleMoveItem} onEdit={handleEditInward}
             activeVolunteer={activeVolunteer} volunteers={volunteers}
             donors={donors}
           />
@@ -310,7 +321,7 @@ const App: React.FC = () => {
             inwards={inwards} outwards={outwards}
             storage={storage} onStorageChange={setStorage}
             onTake={handleTake} onTakeAll={async (s, by, rec, d) => { const c = await quickTakeAllAvailable(s, by, rec, d); await refresh(); return c; }} onDelete={handleDeleteOutward}
-            activeVolunteer={activeVolunteer} volunteers={volunteers}
+            onEdit={handleEditOutward} activeVolunteer={activeVolunteer} volunteers={volunteers}
           />
         )}
         {tab === 'wastage' && (

@@ -758,6 +758,57 @@ export async function importWastageFromCSV(csvText: string): Promise<number> {
   return parsed.length;
 }
 
+// ========== UPDATE / EDIT ENTRIES ==========
+
+const escVal = (v: string | number) => typeof v === 'number' ? String(v) : `'${String(v).replace(/'/g, "''")}'`;
+
+export async function updateInward(id: string, fields: {
+  item?: string; category?: string; qty_in?: number; date_in?: string; time_in?: string;
+  donor?: string; best_before?: string; storage?: string; entered_by?: string;
+}): Promise<void> {
+  const sets: string[] = [];
+  if (fields.item !== undefined) sets.push(`item = ${escVal(fields.item)}`);
+  if (fields.category !== undefined) sets.push(`category = ${escVal(fields.category)}`);
+  if (fields.qty_in !== undefined) sets.push(`qty_in = ${fields.qty_in}`);
+  if (fields.date_in !== undefined) sets.push(`date_in = ${escVal(fields.date_in)}`);
+  if (fields.time_in !== undefined) sets.push(`time_in = ${escVal(fields.time_in)}`);
+  if (fields.donor !== undefined) sets.push(`donor = ${escVal(fields.donor)}`);
+  if (fields.best_before !== undefined) sets.push(`best_before = ${escVal(fields.best_before)}`);
+  if (fields.storage !== undefined) sets.push(`storage = ${escVal(fields.storage)}`);
+  if (fields.entered_by !== undefined) sets.push(`entered_by = ${escVal(fields.entered_by)}`);
+  if (sets.length === 0) return;
+  await window.tasklet.sqlExec(`UPDATE cf_inwards SET ${sets.join(', ')} WHERE id = ${escVal(id)}`);
+}
+
+export async function updateOutward(id: number, fields: {
+  qty_taken?: number; date_taken?: string; time_taken?: string;
+  taken_by?: string; recorded_by?: string;
+}): Promise<void> {
+  const sets: string[] = [];
+  if (fields.qty_taken !== undefined) sets.push(`qty_taken = ${fields.qty_taken}`);
+  if (fields.date_taken !== undefined) sets.push(`date_taken = ${escVal(fields.date_taken)}`);
+  if (fields.time_taken !== undefined) sets.push(`time_taken = ${escVal(fields.time_taken)}`);
+  if (fields.taken_by !== undefined) sets.push(`taken_by = ${escVal(fields.taken_by)}`);
+  if (fields.recorded_by !== undefined) sets.push(`recorded_by = ${escVal(fields.recorded_by)}`);
+  if (sets.length === 0) return;
+  await window.tasklet.sqlExec(`UPDATE cf_outwards SET ${sets.join(', ')} WHERE id = ${id}`);
+}
+
+export async function updateWastage(id: number, fields: {
+  qty_wasted?: number; reason?: string; date_wasted?: string;
+  reported_by?: string; weight_kg?: number; notes?: string;
+}): Promise<void> {
+  const sets: string[] = [];
+  if (fields.qty_wasted !== undefined) sets.push(`qty_wasted = ${fields.qty_wasted}`);
+  if (fields.reason !== undefined) sets.push(`reason = ${escVal(fields.reason)}`);
+  if (fields.date_wasted !== undefined) sets.push(`date_wasted = ${escVal(fields.date_wasted)}`);
+  if (fields.reported_by !== undefined) sets.push(`reported_by = ${escVal(fields.reported_by)}`);
+  if (fields.weight_kg !== undefined) sets.push(`weight_kg = ${fields.weight_kg}`);
+  if (fields.notes !== undefined) sets.push(`notes = ${escVal(fields.notes)}`);
+  if (sets.length === 0) return;
+  await window.tasklet.sqlExec(`UPDATE cf_wastage SET ${sets.join(', ')} WHERE id = ${id}`);
+}
+
 // ========== EXPORT ARCHIVE TO CSV ==========
 
 export function archiveToCSV(archive: ArchivedRecord[]): string {

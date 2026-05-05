@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS, Volunteer } from '../types';
-import { Minus, Trash2, ChevronUp, Snowflake, ThermometerSun, CheckCheck } from 'lucide-react';
+import { Minus, Trash2, ChevronUp, Snowflake, ThermometerSun, CheckCheck, Pencil, Check, X } from 'lucide-react';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 
@@ -12,13 +12,31 @@ interface OutwardsTabProps {
   onTake: (inwardId: string, qty: number, takenBy: string, recordedBy: string, overrideDate?: string) => void;
   onTakeAll: (storage: StorageLocation, takenBy: string, recordedBy: string, dateOverride?: string) => Promise<number>;
   onDelete: (id: number) => void;
+  onEdit: (id: number, fields: { qty_taken?: number; taken_by?: string; recorded_by?: string }) => void;
   activeVolunteer: string;
   volunteers: Volunteer[];
 }
 
-export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, storage, onStorageChange, onTake, onTakeAll, onDelete, activeVolunteer, volunteers }) => {
+export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, storage, onStorageChange, onTake, onTakeAll, onDelete, onEdit, activeVolunteer, volunteers }) => {
   const [showForm, setShowForm] = useState(false);
   const [showTakeAll, setShowTakeAll] = useState(false);
+  const [editingOutId, setEditingOutId] = useState<number | null>(null);
+  const [editOutQty, setEditOutQty] = useState(1);
+  const [editOutTakenBy, setEditOutTakenBy] = useState('');
+  const [editOutRecBy, setEditOutRecBy] = useState('');
+
+  const startEditOut = (o: OutwardEntry) => {
+    setEditingOutId(o.id);
+    setEditOutQty(o.qty_taken);
+    setEditOutTakenBy(o.taken_by || '');
+    setEditOutRecBy(o.recorded_by || '');
+  };
+
+  const saveEditOut = () => {
+    if (editingOutId === null) return;
+    onEdit(editingOutId, { qty_taken: editOutQty, taken_by: editOutTakenBy, recorded_by: editOutRecBy });
+    setEditingOutId(null);
+  };
   const [takeAllBy, setTakeAllBy] = useState('');
   const [takeAllRecBy, setTakeAllRecBy] = useState(activeVolunteer);
   const [takeAllDate, setTakeAllDate] = useState(todayISO());
@@ -299,6 +317,35 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
             return (
               <div key={o.id} className="rounded-xl border border-base-300 border-l-4 border-l-blue-400 bg-gradient-to-r from-blue-50/30 to-transparent overflow-hidden">
                 <div className="p-3">
+                  {editingOutId === o.id ? (
+                    /* ===== INLINE EDIT MODE ===== */
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-mono text-xs bg-base-200 px-1.5 py-0.5 rounded">{o.inward_id}</span>
+                        <span className="font-bold text-sm">{o.item}</span>
+                        <span className="text-xs font-bold text-blue-600">✏️ Editing</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[10px] text-base-content/50 font-medium">Qty Taken</label>
+                          <input type="number" className="input input-bordered input-xs w-full" min={1} value={editOutQty} onChange={e => setEditOutQty(Number(e.target.value))} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-base-content/50 font-medium">Collected By</label>
+                          <input className="input input-bordered input-xs w-full" value={editOutTakenBy} onChange={e => setEditOutTakenBy(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-base-content/50 font-medium">Recorded By</label>
+                          <input className="input input-bordered input-xs w-full" value={editOutRecBy} onChange={e => setEditOutRecBy(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button className="btn btn-success btn-xs gap-1" onClick={saveEditOut}><Check size={12} /> Save</button>
+                        <button className="btn btn-ghost btn-xs gap-1" onClick={() => setEditingOutId(null)}><X size={12} /> Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ===== NORMAL VIEW MODE ===== */
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-0.5 flex-wrap">
@@ -323,10 +370,16 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
                         )}
                       </div>
                     </div>
-                    <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDelete(o.id)}>
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex flex-col gap-1">
+                      <button className="btn btn-ghost btn-xs text-blue-400 hover:text-blue-600 hover:bg-blue-50" onClick={() => startEditOut(o)} title="Edit">
+                        <Pencil size={14} />
+                      </button>
+                      <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDelete(o.id)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
+                  )}
                 </div>
               </div>
             );

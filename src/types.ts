@@ -87,8 +87,8 @@ export interface ArchivedRecord {
 export type TabName = 'dashboard' | 'inwards' | 'outwards' | 'wastage' | 'items' | 'reports' | 'history' | 'admin';
 
 export const CATEGORIES = [
-  'Bakery', 'Chilled', 'Dairy', 'Drinks', 'Dry Goods',
-  'Frozen', 'Meat', 'Produce', 'Ready Meals', 'Snacks', 'Other'
+  'Bakery', 'Chilled', 'Condiments', 'Dairy', 'Drinks', 'Dry Goods',
+  'Frozen', 'Fruit', 'Meat', 'Produce', 'Ready Meals', 'Snacks', 'Vegetables', 'Other'
 ] as const;
 
 export const CATEGORY_COLOURS: Record<string, string> = {
@@ -102,6 +102,9 @@ export const CATEGORY_COLOURS: Record<string, string> = {
   'Produce':     'bg-green-100 text-green-800 border-green-300',
   'Ready Meals': 'bg-orange-100 text-orange-800 border-orange-300',
   'Snacks':      'bg-pink-100 text-pink-800 border-pink-300',
+  'Fruit':       'bg-lime-100 text-lime-800 border-lime-300',
+  'Vegetables':  'bg-emerald-100 text-emerald-800 border-emerald-300',
+  'Condiments':  'bg-yellow-100 text-yellow-800 border-yellow-300',
   'Other':       'bg-gray-100 text-gray-800 border-gray-300',
 };
 
