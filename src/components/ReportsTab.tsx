@@ -38,13 +38,19 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
 
   const [startDate, setStartDate] = useState(toISODate(thirtyDaysAgo));
   const [endDate, setEndDate] = useState(toISODate(today));
-  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly'>('inwards');
+  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly' | 'custom'>('inwards');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  // Custom report state
+  const [customMonths, setCustomMonths] = useState<string[]>([]);
+  const [customSections, setCustomSections] = useState<Record<string, boolean>>({
+    inwardsSummary: true, outwardsSummary: true, wastageSummary: true,
+    donorBreakdown: true, categoryBreakdown: true, volunteerActivity: true, pieCharts: true,
+  });
 
-  const isFullReport = reportType === 'all';
+  const isFullReport = reportType === 'all' || reportType === 'custom';
 
   // Reconstruct archived data
   const archivedInwards = useMemo(() => archive.map(a => ({
@@ -267,7 +273,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   return (
     <div className="space-y-3">
       {/* Storage toggle - hidden for Full Report */}
-      {!isFullReport && (
+      {!isFullReport && reportType !== 'custom' && (
         <div className="flex items-center gap-2">
           <button className={`btn btn-xs ${storage === 'fridge' ? 'btn-success' : 'btn-ghost'}`} onClick={() => onStorageChange('fridge')}>🧊 Fridge</button>
           <button className={`btn btn-xs ${storage === 'freezer' ? 'btn-info' : 'btn-ghost'}`} onClick={() => onStorageChange('freezer')}>❄️ Freezer</button>
@@ -290,7 +296,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {reportType !== 'monthly' && (
+            {reportType !== 'monthly' && reportType !== 'custom' && (
               <>
                 <div className="flex-1 min-w-[120px]">
                   <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Calendar size={10} /> From</label>
@@ -310,11 +316,12 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                 <option value="wastage">🗑️ Wastage Only</option>
                 <option value="all">📊 Full Report (All)</option>
                 <option value="monthly">🥧 Monthly Pie Charts</option>
+                <option value="custom">📋 Custom Report Builder</option>
               </select>
             </div>
           </div>
 
-          {reportType !== 'monthly' && (
+          {reportType !== 'monthly' && reportType !== 'custom' && (
             <button className="btn btn-xs btn-primary gap-1" onClick={downloadCSV}>
               <Download size={12} /> Download CSV
             </button>
@@ -782,15 +789,15 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           });
 
           return (
-            <div className="flex flex-col items-center gap-3">
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
               <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>{slices}</svg>
-              <div className="flex flex-wrap gap-2 justify-center">
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center', marginTop: '8px' }}>
                 {data.map(([label, value], idx) => (
-                  <div key={label} className="flex items-center gap-1.5 text-xs">
-                    <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: colours(idx, label) }} />
-                    <span className="font-medium">{label}</span>
-                    <span className="text-base-content/50">({value} — {((value / total) * 100).toFixed(0)}%)</span>
-                  </div>
+                  <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', marginRight: '6px' }}>
+                    <span style={{ color: colours(idx, label), fontSize: '18px', lineHeight: '1' }}>■</span>
+                    <span style={{ fontWeight: 600 }}>{label}:</span>
+                    <span style={{ color: '#64748b' }}>{value} ({((value / total) * 100).toFixed(0)}%)</span>
+                  </span>
                 ))}
               </div>
             </div>
@@ -823,7 +830,56 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                         return <option key={m} value={m}>{months[Number(mo) - 1]} {y}</option>;
                       })}
                     </select>
-                    <button className="btn btn-xs btn-outline gap-1" onClick={() => window.print()}>🖨️ Print</button>
+                    <button className="btn btn-xs btn-outline gap-1" onClick={() => {
+                      const el = document.getElementById('monthly-charts');
+                      if (!el) return;
+                      const html = `<!DOCTYPE html><html><head><title>Monthly Summary — ${monthLabel}</title>
+                        <style>body{font-family:system-ui,sans-serif;padding:24px;color:#1e293b}
+                        .card{border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-bottom:16px;page-break-inside:avoid}
+                        .badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600}
+                        table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:left}
+                        th{background:#f1f5f9;font-weight:600}svg{max-width:100%;display:block;margin:0 auto}
+                        h2,h3{margin:8px 0}select{display:none}
+                        .flex{display:flex}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.justify-center{justify-content:center}
+                        .gap-1\\.5{gap:6px}.gap-2{gap:8px}.gap-3{gap:12px}
+                        .text-xs{font-size:12px}.text-sm{font-size:14px}.font-medium{font-weight:500}.font-bold{font-weight:700}.font-black{font-weight:900}
+                        .text-center{text-align:center}.space-y-3>*+*{margin-top:12px}
+                        .grid{display:grid}.grid-cols-2{grid-template-columns:repeat(2,1fr)}.grid-cols-4{grid-template-columns:repeat(4,1fr)}
+                        .p-3{padding:12px}.p-4{padding:16px}.text-2xl{font-size:24px}.text-lg{font-size:18px}
+                        .text-\\[10px\\]{font-size:10px}
+                        .bg-blue-50{background:#eff6ff}.bg-green-50{background:#f0fdf4}.bg-purple-50{background:#faf5ff}.bg-amber-50{background:#fffbeb}
+                        .text-blue-700{color:#1d4ed8}.text-green-700{color:#15803d}.text-purple-700{color:#7e22ce}.text-amber-700{color:#b45309}
+                        .text-blue-600{color:#2563eb}.text-green-600{color:#16a34a}.text-purple-600{color:#9333ea}.text-amber-600{color:#d97706}
+                        .border{border:1px solid}.border-blue-200{border-color:#bfdbfe}.border-green-200{border-color:#bbf7d0}.border-purple-200{border-color:#e9d5ff}.border-amber-200{border-color:#fde68a}
+                        .text-base-content\\/50{color:#64748b}
+                        </style></head><body>${el.innerHTML}</body></html>`;
+                      const blob = new Blob([html], { type: 'text/html' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url; a.download = 'monthly-report-' + monthLabel.replace(/\\s+/g,'-') + '.html';
+                      a.click(); URL.revokeObjectURL(url);
+                    }}>🖨️ Full Report</button>
+                    <button className="btn btn-xs btn-secondary gap-1" onClick={() => {
+                      const el = document.getElementById('pie-charts-only');
+                      if (!el) return;
+                      const html = `<!DOCTYPE html><html><head><title>Pie Charts — ${monthLabel}</title>
+                        <style>body{font-family:system-ui,sans-serif;padding:24px;color:#1e293b;max-width:800px;margin:0 auto}
+                        h1{font-size:22px;color:#16a34a;margin-bottom:4px;text-align:center}
+                        p.sub{text-align:center;color:#64748b;font-size:12px;margin-bottom:20px}
+                        .chart-container{display:flex;flex-wrap:wrap;gap:40px;justify-content:center;margin-top:20px}
+                        .chart-box{flex:1;min-width:300px;max-width:380px;border:1px solid #e2e8f0;border-radius:12px;padding:20px;text-align:center}
+                        .chart-title{font-size:16px;font-weight:700;margin-bottom:12px}
+                        svg{max-width:220px;display:block;margin:0 auto 12px}
+                        @media print{body{padding:10px}}</style></head><body>
+                        <h1>🥧 Ramsey Community Fridge — Pie Charts</h1>
+                        <p class="sub">${monthLabel} | Generated: ${new Date().toLocaleDateString('en-GB')}</p>
+                        <div class="chart-container">${el.innerHTML}</div></body></html>`;
+                      const blob = new Blob([html], { type: 'text/html' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url; a.download = 'pie-charts-' + monthLabel.replace(/\s+/g,'-') + '.html';
+                      a.click(); URL.revokeObjectURL(url);
+                    }}>🥧 Pie Charts Only</button>
                   </div>
                 </div>
               </div>
@@ -849,27 +905,30 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               </div>
             </div>
 
-            {/* Donor Pie Chart */}
-            <div className="card bg-base-100 border border-base-300 shadow-sm">
-              <div className="card-body p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">🏪</span>
-                  <span className="font-bold text-sm">Items by Donor</span>
-                  <span className="badge badge-xs badge-ghost">{donorTotal} total</span>
+            {/* Pie Charts Only - downloadable section */}
+            <div id="pie-charts-only">
+              {/* Donor Pie Chart */}
+              <div className="card bg-base-100 border border-base-300 shadow-sm">
+                <div className="card-body p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🏪</span>
+                    <span className="font-bold text-sm">Items by Donor</span>
+                    <span className="badge badge-xs badge-ghost">{donorTotal} total</span>
+                  </div>
+                  {renderPie(donorData, donorTotal, (i) => PIE_COLOURS[i % PIE_COLOURS.length])}
                 </div>
-                {renderPie(donorData, donorTotal, (i) => PIE_COLOURS[i % PIE_COLOURS.length])}
               </div>
-            </div>
 
-            {/* Category Pie Chart */}
-            <div className="card bg-base-100 border border-base-300 shadow-sm">
-              <div className="card-body p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">📦</span>
-                  <span className="font-bold text-sm">Items by Category</span>
-                  <span className="badge badge-xs badge-ghost">{catTotal} total</span>
+              {/* Category Pie Chart */}
+              <div className="card bg-base-100 border border-base-300 shadow-sm">
+                <div className="card-body p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">📦</span>
+                    <span className="font-bold text-sm">Items by Category</span>
+                    <span className="badge badge-xs badge-ghost">{catTotal} total</span>
+                  </div>
+                  {renderPie(catData, catTotal, (_, label) => CAT_PIE_COLOURS[label] || '#9ca3af')}
                 </div>
-                {renderPie(catData, catTotal, (_, label) => CAT_PIE_COLOURS[label] || '#9ca3af')}
               </div>
             </div>
 
@@ -964,8 +1023,427 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
         );
       })()}
 
+      {/* Custom Report Builder */}
+      {reportType === 'custom' && (() => {
+        // Gather all months from all data (inwards + outwards + wastage + archived)
+        const allData = [...inwards, ...archivedInwards];
+        const allOut = [...outwards, ...archivedOutwards];
+        const allWaste = [...wastage, ...archivedWastage];
+        const monthSet = new Set<string>();
+        allData.forEach(i => { const d = parseDateStr(i.date_in); if (d) monthSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); });
+        const inLookupM: Record<string, string> = {}; allData.forEach(i => { inLookupM[i.id] = i.date_in; });
+        allOut.forEach(o => { const effD = o.source === 'bulk' && o.inward_id && inLookupM[o.inward_id] ? inLookupM[o.inward_id] : o.date_taken; const d = parseDateStr(effD); if (d) monthSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); });
+        allWaste.forEach(w => { const d = parseDateStr(w.date_wasted); if (d) monthSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`); });
+        const availMonths = Array.from(monthSet).sort().reverse();
+        const toggleMonth = (m: string) => setCustomMonths(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m]);
+        const toggleSection = (key: string) => setCustomSections(prev => ({ ...prev, [key]: !prev[key] }));
+        const selectAllMonths = () => setCustomMonths(availMonths);
+        const clearAllMonths = () => setCustomMonths([]);
+
+        // Filter data for selected months
+        const inLookupC: Record<string, string> = {};
+        allData.forEach(i => { inLookupC[i.id] = i.date_in; });
+        const getEffDate = (o: any) => o.source === 'bulk' && o.inward_id && inLookupC[o.inward_id] ? inLookupC[o.inward_id] : o.date_taken;
+        const inMonth = (dateStr: string) => {
+          const d = parseDateStr(dateStr);
+          if (!d) return false;
+          const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+          return customMonths.includes(m);
+        };
+        const cInwards = allData.filter(i => inMonth(i.date_in));
+        const cOutwards = allOut.filter(o => inMonth(getEffDate(o)));
+        const cWastage = allWaste.filter(w => inMonth(w.date_wasted));
+        const cTotalIn = cInwards.reduce((s, i) => s + (i.qty_in || 0), 0);
+        const cTotalOut = cOutwards.reduce((s, o) => s + o.qty_taken, 0);
+        const cTotalWaste = cWastage.reduce((s, w) => s + w.qty_wasted, 0);
+        const cTotalWeightKg = cWastage.reduce((s, w) => s + (w.weight_kg || 0), 0);
+
+        // Breakdowns
+        const cByCategory: Record<string, number> = {};
+        cInwards.forEach(i => { cByCategory[i.category] = (cByCategory[i.category] || 0) + i.qty_in; });
+        const cByCatArr = Object.entries(cByCategory).sort((a, b) => b[1] - a[1]);
+
+        const cByDonor: Record<string, number> = {};
+        cInwards.forEach(i => { const dn = i.donor || 'Unknown'; cByDonor[dn] = (cByDonor[dn] || 0) + i.qty_in; });
+        const cByDonorArr = Object.entries(cByDonor).sort((a, b) => b[1] - a[1]);
+
+        const cVolMap: Record<string, { inC: number; inQ: number; outC: number; outQ: number; wC: number; wQ: number }> = {};
+        const cAddVol = (n: string) => { if (!cVolMap[n]) cVolMap[n] = { inC:0,inQ:0,outC:0,outQ:0,wC:0,wQ:0 }; return cVolMap[n]; };
+        cInwards.forEach(i => { const v = cAddVol(i.entered_by || '?'); v.inC++; v.inQ += i.qty_in; });
+        cOutwards.forEach(o => { const v = cAddVol(o.recorded_by || '?'); v.outC++; v.outQ += o.qty_taken; });
+        cWastage.forEach(w => { const v = cAddVol(w.reported_by || '?'); v.wC++; v.wQ += w.qty_wasted; });
+        const cVols = Object.entries(cVolMap).sort((a, b) => (b[1].inC+b[1].outC+b[1].wC) - (a[1].inC+a[1].outC+a[1].wC));
+
+        const monthLabel = (m: string) => {
+          const [y, mo] = m.split('-');
+          return new Date(Number(y), Number(mo)-1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+        };
+
+        const selectedLabel = customMonths.length === 0 ? 'No months selected' :
+          customMonths.length <= 3 ? customMonths.map(monthLabel).join(', ') :
+          `${customMonths.length} months selected`;
+
+        const hasData = customMonths.length > 0;
+
+        // Pie chart helper
+        const PIE_COLORS = ['#22c55e','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#e11d48'];
+        const renderPie = (data: [string, number][], title: string) => {
+          const total = data.reduce((s, [, v]) => s + v, 0);
+          if (total === 0) return null;
+          let cumAngle = 0;
+          const slices = data.map(([label, val], idx) => {
+            const pct = val / total;
+            const startAngle = cumAngle;
+            cumAngle += pct * 360;
+            const endAngle = cumAngle;
+            const startRad = (startAngle - 90) * Math.PI / 180;
+            const endRad = (endAngle - 90) * Math.PI / 180;
+            const largeArc = pct > 0.5 ? 1 : 0;
+            const x1 = 50 + 40 * Math.cos(startRad);
+            const y1 = 50 + 40 * Math.sin(startRad);
+            const x2 = 50 + 40 * Math.cos(endRad);
+            const y2 = 50 + 40 * Math.sin(endRad);
+            const color = PIE_COLORS[idx % PIE_COLORS.length];
+            if (data.length === 1) return <circle key={idx} cx="50" cy="50" r="40" fill={color} />;
+            return <path key={idx} d={`M50,50 L${x1},${y1} A40,40 0 ${largeArc},1 ${x2},${y2} Z`} fill={color} />;
+          });
+          return (
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-center">{title}</p>
+              <svg viewBox="0 0 100 100" className="w-32 h-32 mx-auto">{slices}</svg>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'center', marginTop: '4px' }}>
+                {data.map(([label, val], idx) => (
+                  <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '10px' }}>
+                    <span style={{ color: PIE_COLORS[idx % PIE_COLORS.length], fontSize: '14px', lineHeight: '1' }}>■</span>
+                    <span style={{ fontWeight: 600 }}>{label}:</span>
+                    <span style={{ color: '#64748b' }}>{val} ({(val/total*100).toFixed(0)}%)</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        };
+
+        // Print handler
+        const printCustomReport = () => {
+          const el = document.getElementById('custom-report-output');
+          if (!el) return;
+          const html = `<!DOCTYPE html><html><head><title>Custom Report — ${selectedLabel}</title>
+            <style>body{font-family:system-ui,sans-serif;padding:20px;font-size:12px;color:#333}
+            h1{font-size:18px;color:#5b21b6;margin-bottom:4px}h2{font-size:14px;margin:16px 0 6px;color:#6d28d9}
+            table{width:100%;border-collapse:collapse;margin:8px 0}th,td{border:1px solid #ddd;padding:4px 8px;text-align:left;font-size:11px}
+            th{background:#f3e8ff;font-weight:bold}.card{border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:8px 0;background:#faf5ff}
+            .stat{display:inline-block;text-align:center;padding:8px 16px;margin:4px;border-radius:8px;background:#ede9fe}
+            .stat-val{font-size:20px;font-weight:bold;color:#5b21b6}.stat-label{font-size:10px;color:#7c3aed}
+            svg{max-width:200px;margin:8px auto;display:block}
+            </style></head><body>
+            <h1>📋 Ramsey Community Fridge — Custom Report</h1>
+            <p style="color:#666;font-size:11px">Months: ${selectedLabel} | Generated: ${new Date().toLocaleDateString('en-GB')}</p><hr>
+            ${el.innerHTML}</body></html>`;
+          const blob = new Blob([html], { type: 'text/html' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = 'custom-report-' + selectedLabel.replace(/[\\s,]+/g,'-') + '.html';
+          a.click(); URL.revokeObjectURL(url);
+        };
+
+        const sectionDefs = [
+          { key: 'inwardsSummary', label: '📥 Inwards Summary', icon: '📥' },
+          { key: 'outwardsSummary', label: '📤 Outwards Summary', icon: '📤' },
+          { key: 'wastageSummary', label: '🗑️ Wastage Summary', icon: '🗑️' },
+          { key: 'donorBreakdown', label: '🏪 Donor Breakdown', icon: '🏪' },
+          { key: 'categoryBreakdown', label: '📦 Category Breakdown', icon: '📦' },
+          { key: 'volunteerActivity', label: '👥 Volunteer Activity', icon: '👥' },
+          { key: 'pieCharts', label: '🥧 Pie Charts', icon: '🥧' },
+        ];
+
+        return (
+          <div className="space-y-3">
+            {/* Month selector */}
+            <div className="card bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-indigo-800 flex items-center gap-1"><Calendar size={12} /> Select Months</p>
+                  <div className="flex gap-1">
+                    <button className="btn btn-xs btn-ghost text-indigo-600" onClick={selectAllMonths}>Select All</button>
+                    <button className="btn btn-xs btn-ghost text-red-500" onClick={clearAllMonths}>Clear</button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {availMonths.map(m => (
+                    <button
+                      key={m}
+                      className={`btn btn-xs ${customMonths.includes(m) ? 'btn-primary' : 'btn-outline btn-ghost'}`}
+                      onClick={() => toggleMonth(m)}
+                    >
+                      {monthLabel(m)}
+                    </button>
+                  ))}
+                  {availMonths.length === 0 && <p className="text-xs text-base-content/40">No data available yet</p>}
+                </div>
+              </div>
+            </div>
+
+            {/* Section selector */}
+            <div className="card bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-200 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="text-xs font-bold text-violet-800 flex items-center gap-1"><Filter size={12} /> Choose Sections</p>
+                <div className="flex flex-wrap gap-2">
+                  {sectionDefs.map(sd => (
+                    <label key={sd.key} className="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox" className="checkbox checkbox-xs checkbox-primary" checked={customSections[sd.key]} onChange={() => toggleSection(sd.key)} />
+                      <span className="text-xs">{sd.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Action bar */}
+            {hasData && (
+              <div className="flex gap-2">
+                <button className="btn btn-xs btn-primary gap-1" onClick={printCustomReport}>🖨️ Print Report</button>
+                <span className="text-xs text-base-content/50 self-center">{selectedLabel}</span>
+              </div>
+            )}
+
+            {/* Report output */}
+            {hasData && (
+              <div id="custom-report-output" className="space-y-3">
+                {/* Overview stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-lg p-3 text-center">
+                    <p className="text-lg font-extrabold text-green-700">{cTotalIn}</p>
+                    <p className="text-[10px] text-green-600 font-medium">Items In</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-blue-50 to-cyan-50 border border-blue-200 rounded-lg p-3 text-center">
+                    <p className="text-lg font-extrabold text-blue-700">{cTotalOut}</p>
+                    <p className="text-[10px] text-blue-600 font-medium">Items Out</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-red-50 to-pink-50 border border-red-200 rounded-lg p-3 text-center">
+                    <p className="text-lg font-extrabold text-red-700">{cTotalWaste}</p>
+                    <p className="text-[10px] text-red-600 font-medium">Wastage</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-purple-50 to-violet-50 border border-purple-200 rounded-lg p-3 text-center">
+                    <p className="text-lg font-extrabold text-purple-700">{cTotalIn > 0 ? ((cTotalOut / cTotalIn) * 100).toFixed(0) : 0}%</p>
+                    <p className="text-[10px] text-purple-600 font-medium">Efficiency</p>
+                  </div>
+                </div>
+
+                {/* Inwards Summary */}
+                {customSections.inwardsSummary && cInwards.length > 0 && (
+                  <div className="card bg-base-100 border border-base-300 shadow-sm">
+                    <div className="card-body p-3 space-y-2">
+                      <p className="text-xs font-bold text-green-700">📥 Inwards Summary — {cInwards.length} entries, {cTotalIn} items</p>
+                      <div className="overflow-x-auto">
+                        <table className="table table-xs w-full">
+                          <thead><tr className="text-[10px]"><th>Date</th><th>Time</th><th>Item</th><th className="text-center">Qty</th><th>Location</th><th>Donor</th><th>Volunteer</th></tr></thead>
+                          <tbody>
+                            {cInwards.slice(0, 100).map((i, idx) => (
+                              <tr key={idx} className="text-[10px]">
+                                <td>{i.date_in}</td><td>{i.time_in || '-'}</td><td className="font-medium">{i.item}</td>
+                                <td className="text-center font-bold text-green-600">{i.qty_in}</td>
+                                <td>{i.storage}</td><td>{i.donor || '-'}</td><td>{i.entered_by || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {cInwards.length > 100 && <p className="text-[10px] text-base-content/40 mt-1">Showing first 100 of {cInwards.length} entries</p>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Outwards Summary */}
+                {customSections.outwardsSummary && cOutwards.length > 0 && (
+                  <div className="card bg-base-100 border border-base-300 shadow-sm">
+                    <div className="card-body p-3 space-y-2">
+                      <p className="text-xs font-bold text-blue-700">📤 Outwards Summary — {cOutwards.length} entries, {cTotalOut} items</p>
+                      <div className="overflow-x-auto">
+                        <table className="table table-xs w-full">
+                          <thead><tr className="text-[10px]"><th>Date</th><th>Time</th><th>Item</th><th className="text-center">Qty</th><th>Donor</th><th>Volunteer</th><th>Source</th></tr></thead>
+                          <tbody>
+                            {cOutwards.slice(0, 100).map((o, idx) => {
+                              const srcBadge = o.source === 'import' ? '🟠 Import' : o.source === 'bulk' ? '🟣 Bulk' : '🟢 Manual';
+                              return (
+                                <tr key={idx} className="text-[10px]">
+                                  <td>{o.date_taken}</td><td>{o.time_taken || '-'}</td><td className="font-medium">{o.item}</td>
+                                  <td className="text-center font-bold text-blue-600">{o.qty_taken}</td>
+                                  <td>{o.donor || '-'}</td><td>{o.recorded_by || '-'}</td>
+                                  <td><span className="text-[9px]">{srcBadge}</span></td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        {cOutwards.length > 100 && <p className="text-[10px] text-base-content/40 mt-1">Showing first 100 of {cOutwards.length} entries</p>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Wastage Summary */}
+                {customSections.wastageSummary && cWastage.length > 0 && (
+                  <div className="card bg-base-100 border border-base-300 shadow-sm">
+                    <div className="card-body p-3 space-y-2">
+                      <p className="text-xs font-bold text-red-700">🗑️ Wastage Summary — {cWastage.length} entries, {cTotalWaste} items, {cTotalWeightKg.toFixed(1)} kg</p>
+                      <div className="overflow-x-auto">
+                        <table className="table table-xs w-full">
+                          <thead><tr className="text-[10px]"><th>Date</th><th>Item</th><th className="text-center">Qty</th><th className="text-center">KG</th><th className="text-center">lbs</th><th>Reason</th><th>Donor</th><th>Volunteer</th></tr></thead>
+                          <tbody>
+                            {cWastage.slice(0, 100).map((w, idx) => (
+                              <tr key={idx} className="text-[10px]">
+                                <td>{w.date_wasted}</td><td className="font-medium">{w.item}</td>
+                                <td className="text-center font-bold text-red-600">{w.qty_wasted}</td>
+                                <td className="text-center">{w.weight_kg || '-'}</td>
+                                <td className="text-center">{w.weight_kg ? kgToLbs(w.weight_kg) : '-'}</td>
+                                <td>{w.reason}</td><td>{w.donor || '-'}</td><td>{w.reported_by || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Donor Breakdown */}
+                {customSections.donorBreakdown && cByDonorArr.length > 0 && (
+                  <div className="card bg-base-100 border border-base-300 shadow-sm">
+                    <div className="card-body p-3 space-y-2">
+                      <p className="text-xs font-bold text-orange-700">🏪 Donor Breakdown</p>
+                      <div className="overflow-x-auto">
+                        <table className="table table-xs w-full">
+                          <thead><tr className="text-[10px]"><th>Donor</th><th className="text-center">Items</th><th className="text-center">% of Total</th><th>Bar</th></tr></thead>
+                          <tbody>
+                            {cByDonorArr.map(([donor, qty]) => (
+                              <tr key={donor} className="text-[10px]">
+                                <td className="font-medium">{donor}</td>
+                                <td className="text-center font-bold text-orange-600">{qty}</td>
+                                <td className="text-center">{cTotalIn > 0 ? ((qty/cTotalIn)*100).toFixed(1) : 0}%</td>
+                                <td><div className="w-full bg-orange-100 rounded-full h-2"><div className="bg-orange-500 h-2 rounded-full" style={{ width: `${cTotalIn > 0 ? (qty/cTotalIn*100) : 0}%` }} /></div></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Category Breakdown */}
+                {customSections.categoryBreakdown && cByCatArr.length > 0 && (
+                  <div className="card bg-base-100 border border-base-300 shadow-sm">
+                    <div className="card-body p-3 space-y-2">
+                      <p className="text-xs font-bold text-teal-700">📦 Category Breakdown</p>
+                      <div className="overflow-x-auto">
+                        <table className="table table-xs w-full">
+                          <thead><tr className="text-[10px]"><th>Category</th><th className="text-center">Items</th><th className="text-center">% of Total</th><th>Bar</th></tr></thead>
+                          <tbody>
+                            {cByCatArr.map(([cat, qty]) => {
+                              const catCls = CATEGORY_COLOURS[cat] || 'bg-gray-100 text-gray-700';
+                              return (
+                                <tr key={cat} className="text-[10px]">
+                                  <td><span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${catCls}`}>{cat}</span></td>
+                                  <td className="text-center font-bold">{qty}</td>
+                                  <td className="text-center">{cTotalIn > 0 ? ((qty/cTotalIn)*100).toFixed(1) : 0}%</td>
+                                  <td><div className="w-full bg-teal-100 rounded-full h-2"><div className="bg-teal-500 h-2 rounded-full" style={{ width: `${cTotalIn > 0 ? (qty/cTotalIn*100) : 0}%` }} /></div></td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Volunteer Activity */}
+                {customSections.volunteerActivity && Object.keys(cVolMap).length > 0 && (
+                  <div className="card bg-base-100 border border-base-300 shadow-sm">
+                    <div className="card-body p-3 space-y-2">
+                      <p className="text-xs font-bold text-violet-700">👥 Volunteer Activity</p>
+                      <div className="overflow-x-auto">
+                        <table className="table table-xs w-full">
+                          <thead><tr className="text-[10px]"><th>Volunteer</th><th className="text-center">📥 In</th><th className="text-center">📤 Out</th><th className="text-center">🗑️ Waste</th><th className="text-center">Total</th></tr></thead>
+                          <tbody>
+                            {Object.entries(cVolMap).sort((a,b) => (b[1].inC+b[1].outC+b[1].wC) - (a[1].inC+a[1].outC+a[1].wC)).map(([name, d]) => (
+                              <tr key={name} className="text-[10px]">
+                                <td className="font-medium">{name}</td>
+                                <td className="text-center text-green-600 font-bold">{d.inQ} <span className="text-base-content/40">({d.inC})</span></td>
+                                <td className="text-center text-blue-600 font-bold">{d.outQ} <span className="text-base-content/40">({d.outC})</span></td>
+                                <td className="text-center text-red-600 font-bold">{d.wQ} <span className="text-base-content/40">({d.wC})</span></td>
+                                <td className="text-center font-bold">{d.inC + d.outC + d.wC}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Pie Charts */}
+                {customSections.pieCharts && cTotalIn > 0 && (
+                  <div className="card bg-base-100 border border-base-300 shadow-sm">
+                    <div className="card-body p-3 space-y-2">
+                      <p className="text-xs font-bold text-indigo-700">🥧 Pie Charts</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {renderPie(cByDonorArr, '🏪 Donor Share')}
+                        {renderPie(cByCatArr, '📦 Category Breakdown')}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Month-by-month breakdown */}
+                {customMonths.length > 1 && (
+                  <div className="card bg-base-100 border border-base-300 shadow-sm">
+                    <div className="card-body p-3 space-y-2">
+                      <p className="text-xs font-bold text-indigo-700">📅 Month-by-Month Comparison</p>
+                      <div className="overflow-x-auto">
+                        <table className="table table-xs w-full">
+                          <thead><tr className="text-[10px]"><th>Month</th><th className="text-center">📥 In</th><th className="text-center">📤 Out</th><th className="text-center">🗑️ Waste</th><th className="text-center">Efficiency</th></tr></thead>
+                          <tbody>
+                            {(() => { const inLookup: Record<string, string> = {}; allData.forEach(i => { inLookup[i.id] = i.date_in; }); return customMonths.sort().map(m => {
+                              const mIn = allData.filter(i => { const d = parseDateStr(i.date_in); return d && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === m; });
+                              const mOut = allOut.filter(o => { const effDate = o.source === 'bulk' && o.inward_id && inLookup[o.inward_id] ? inLookup[o.inward_id] : o.date_taken; const d = parseDateStr(effDate); return d && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === m; });
+                              const mW = allWaste.filter(w => { const d = parseDateStr(w.date_wasted); return d && `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` === m; });
+                              const mInQ = mIn.reduce((s, i) => s + (i.qty_in || 0), 0);
+                              const mOutQ = mOut.reduce((s, o) => s + o.qty_taken, 0);
+                              const mWQ = mW.reduce((s, w) => s + w.qty_wasted, 0);
+                              return (
+                                <tr key={m} className="text-[10px]">
+                                  <td className="font-medium">{monthLabel(m)}</td>
+                                  <td className="text-center font-bold text-green-600">{mInQ}</td>
+                                  <td className="text-center font-bold text-blue-600">{mOutQ}</td>
+                                  <td className="text-center font-bold text-red-600">{mWQ}</td>
+                                  <td className="text-center font-bold text-purple-600">{mInQ > 0 ? ((mOutQ/mInQ)*100).toFixed(0) : 0}%</td>
+                                </tr>
+                              );
+                            }); })()}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!hasData && (
+              <div className="bg-base-200/50 rounded-lg p-6 text-center">
+                <p className="text-2xl mb-2">📋</p>
+                <p className="text-sm font-medium text-base-content/60">Select one or more months above to build your report</p>
+                <p className="text-xs text-base-content/40 mt-1">Then choose which sections to include</p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Full report extras */}
-      {isFullReport && (
+      {isFullReport && reportType !== 'custom' && (
         <>
           <div className="card bg-base-100 border border-base-300 shadow-sm">
             <div className="card-body p-3 space-y-2">

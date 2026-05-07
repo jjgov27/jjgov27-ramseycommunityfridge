@@ -1,11 +1,18 @@
-import { InwardItem, OutwardEntry, WastageEntry, CustomItem, StorageLocation, ArchivedRecord, Volunteer, Donor } from '../types';
-
+import { sqlExec, sqlQuery } from './sql-adapter';
 const esc = (s: string) => s.replace(/'/g, "''");
 
-// ========== INIT (reduced from 8 calls to 3) ==========
+// ========== INIT (cached singleton — prevents double-init from React strict mode) ==========
+
+let _initPromise: Promise<void> | null = null;
 
 export async function initDB(): Promise<void> {
-  // Core tables - one call each (SQLite requires separate CREATE TABLE statements)
+  if (_initPromise) return _initPromise;
+  _initPromise = _doInit();
+  return _initPromise;
+}
+
+async function _doInit(): Promise<void> {
+  // All columns included in CREATE TABLE — no ALTER TABLE migrations needed
   await Promise.all([
     window.tasklet.sqlExec(`
       CREATE TABLE IF NOT EXISTS cf_inwards (
@@ -19,7 +26,9 @@ export async function initDB(): Promise<void> {
         donor TEXT NOT NULL DEFAULT '',
         entered_by TEXT NOT NULL DEFAULT '',
         best_before TEXT NOT NULL DEFAULT '',
-        storage TEXT NOT NULL DEFAULT 'fridge'
+        storage TEXT NOT NULL DEFAULT 'fridge',
+        moved_to TEXT NOT NULL DEFAULT '',
+        moved_date TEXT NOT NULL DEFAULT ''
       )
     `),
     window.tasklet.sqlExec(`
@@ -30,6 +39,8 @@ export async function initDB(): Promise<void> {
         date_taken TEXT NOT NULL,
         time_taken TEXT NOT NULL,
         taken_by TEXT NOT NULL DEFAULT '',
+        recorded_by TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'manual',
         FOREIGN KEY (inward_id) REFERENCES cf_inwards(id)
       )
     `),
@@ -42,6 +53,7 @@ export async function initDB(): Promise<void> {
         date_wasted TEXT NOT NULL,
         reported_by TEXT NOT NULL DEFAULT '',
         notes TEXT NOT NULL DEFAULT '',
+        weight_kg REAL NOT NULL DEFAULT 0,
         FOREIGN KEY (inward_id) REFERENCES cf_inwards(id)
       )
     `),
@@ -93,18 +105,6 @@ export async function initDB(): Promise<void> {
 
   // Seed counter
   await window.tasklet.sqlExec(`INSERT OR IGNORE INTO cf_counter (key, value) VALUES ('next_id', 1)`);
-
-  // Migrations - run in parallel, failures are expected
-  await Promise.allSettled([
-    window.tasklet.sqlExec(`ALTER TABLE cf_inwards ADD COLUMN storage TEXT NOT NULL DEFAULT 'fridge'`),
-    window.tasklet.sqlExec(`ALTER TABLE cf_inwards ADD COLUMN entered_by TEXT NOT NULL DEFAULT ''`),
-    window.tasklet.sqlExec(`ALTER TABLE cf_inwards ADD COLUMN moved_to TEXT NOT NULL DEFAULT ''`),
-    window.tasklet.sqlExec(`ALTER TABLE cf_inwards ADD COLUMN moved_date TEXT NOT NULL DEFAULT ''`),
-    window.tasklet.sqlExec(`ALTER TABLE cf_wastage ADD COLUMN reported_by TEXT NOT NULL DEFAULT ''`),
-    window.tasklet.sqlExec(`ALTER TABLE cf_wastage ADD COLUMN weight_kg REAL NOT NULL DEFAULT 0`),
-    window.tasklet.sqlExec(`ALTER TABLE cf_outwards ADD COLUMN recorded_by TEXT NOT NULL DEFAULT ''`),
-    window.tasklet.sqlExec(`ALTER TABLE cf_outwards ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`),
-  ]);
 }
 
 // ========== ID GENERATION ==========
