@@ -52,7 +52,15 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
 
   const availableItems = inwards.filter(i => i.storage === storage && i.qty_remaining > 0);
   const selectedItem = inwards.find(i => i.id === selectedId);
-  const filteredOutwards = outwards.filter(o => o.storage === storage);
+  const inwardStatusMap = new Map(inwards.map(i => [i.id, i.status]));
+  const statusOrder: Record<string, number> = { available: 0, partial: 1, gone: 2 };
+  const filteredOutwards = outwards
+    .filter(o => o.storage === storage)
+    .sort((a, b) => {
+      const sa = statusOrder[inwardStatusMap.get(a.inward_id) || 'gone'] ?? 3;
+      const sb = statusOrder[inwardStatusMap.get(b.inward_id) || 'gone'] ?? 3;
+      return sa - sb;
+    });
   const isFridge = storage === 'fridge';
 
   const handleOpenForm = () => {

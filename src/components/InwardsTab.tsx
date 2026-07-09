@@ -86,13 +86,15 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
     setShowForm(false);
   };
 
+  const statusOrder: Record<string, number> = { available: 0, partial: 1, gone: 2 };
   const filtered = inwards
     .filter(i => i.storage === storage)
     .filter(i => {
       if (filterStatus !== 'all' && i.status !== filterStatus) return false;
       if (search && !i.item.toLowerCase().includes(search.toLowerCase()) && !i.id.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
-    });
+    })
+    .sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
 
   const isFridge = storage === 'fridge';
 
