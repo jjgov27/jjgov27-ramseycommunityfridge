@@ -57,6 +57,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
     id: a.id, item: a.item, category: a.category, qty_in: a.qty_in, unit: a.unit,
     date_in: a.date_in, time_in: '', donor: a.donor, entered_by: '',
     best_before: a.best_before, storage: a.storage, moved_to: '', moved_date: '',
+    unit_value: a.unit_value || 0,
     qty_remaining: 0, total_taken: a.total_taken, total_wasted: a.total_wasted,
     status: 'gone' as const, _archived: true,
   })), [archive]);
@@ -273,7 +274,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   return (
     <div className="space-y-3">
       {/* Storage toggle - hidden for Full Report */}
-      {!isFullReport && reportType !== 'custom' && (
+      {!isFullReport && (
         <div className="flex items-center gap-2">
           <button className={`btn btn-xs ${storage === 'fridge' ? 'btn-success' : 'btn-ghost'}`} onClick={() => onStorageChange('fridge')}>🧊 Fridge</button>
           <button className={`btn btn-xs ${storage === 'freezer' ? 'btn-info' : 'btn-ghost'}`} onClick={() => onStorageChange('freezer')}>❄️ Freezer</button>

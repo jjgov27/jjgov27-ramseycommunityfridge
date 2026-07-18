@@ -9,7 +9,7 @@ interface InwardsTabProps {
   customItems: CustomItem[];
   storage: StorageLocation;
   onStorageChange: (s: StorageLocation) => void;
-  onAdd: (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, storage: StorageLocation, enteredBy: string, overrideDate?: string) => void;
+  onAdd: (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, storage: StorageLocation, enteredBy: string, overrideDate?: string, unitValue?: number) => void;
   onDelete: (id: string) => void;
   onMove: (id: string, newStorage: StorageLocation) => void;
   onEdit: (id: string, fields: { item?: string; category?: string; qty_in?: number; donor?: string; best_before?: string; entered_by?: string }) => void;
@@ -28,6 +28,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
   const [enteredBy, setEnteredBy] = useState(activeVolunteer);
   const [bestBefore, setBestBefore] = useState('');
   const [dateIn, setDateIn] = useState(todayISO());
+  const [unitValue, setUnitValue] = useState(0);
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editItem, setEditItem] = useState('');
@@ -59,9 +60,25 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
   customItems.forEach(ci => { allItems[ci.name] = ci.category; });
   const itemNames = Object.keys(allItems).sort();
 
+  const applyMeatDefaults = (cat: string) => {
+    if (cat === 'Meat') {
+      setUnit('packs');
+      if (!donor) setDonor('W E Teare');
+    }
+  };
+
   const handleItemChange = (val: string) => {
     setItem(val);
-    if (allItems[val]) setCategory(allItems[val]);
+    if (allItems[val]) {
+      const cat = allItems[val];
+      setCategory(cat);
+      applyMeatDefaults(cat);
+    }
+  };
+
+  const handleCategoryChange = (cat: string) => {
+    setCategory(cat);
+    applyMeatDefaults(cat);
   };
 
   const handleOpenForm = () => {
@@ -74,7 +91,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
 
   const handleSubmit = () => {
     if (!item.trim() || qty <= 0) return;
-    onAdd(item.trim(), category || 'Other', qty, unit, donor.trim(), bestBefore, storage, enteredBy.trim(), dateIn);
+    onAdd(item.trim(), category || 'Other', qty, unit, donor.trim(), bestBefore, storage, enteredBy.trim(), dateIn, unitValue || 0);
     setItem('');
     setCategory('');
     setQty(1);
@@ -83,6 +100,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
     setEnteredBy(activeVolunteer);
     setBestBefore('');
     setDateIn(todayISO());
+    setUnitValue(0);
     setShowForm(false);
   };
 
@@ -129,74 +147,86 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
         {showForm ? 'Close Form' : `Log Item Into ${isFridge ? 'Fridge' : 'Freezer'}`}
       </button>
 
-      {/* Entry form */}
+      {/* Entry form — compact 3-row grid, tab left→right then next row */}
       {showForm && (
         <div className={`rounded-xl border-2 ${isFridge ? 'border-emerald-200 bg-emerald-50/50' : 'border-blue-200 bg-blue-50/50'}`}>
-          <div className="p-4 space-y-3">
-            <h3 className="font-bold text-sm flex items-center gap-2">
+          <div className="p-3 space-y-2">
+            <h3 className="font-bold text-sm flex items-center gap-2 mb-1">
               {isFridge ? '🧊' : '❄️'} New {isFridge ? 'Fridge' : 'Freezer'} Entry
             </h3>
 
-            <div className="form-control">
-              <label className="label py-0.5"><span className="label-text text-xs font-medium">📅 Date Received</span></label>
-              <input type="date" className="input input-bordered input-sm w-full bg-white" value={dateIn} onChange={e => setDateIn(e.target.value)} />
-            </div>
-
-            <div className="form-control">
-              <label className="label py-0.5"><span className="label-text text-xs font-medium">Item Name *</span></label>
-              <input
-                className="input input-bordered input-sm w-full bg-white"
-                list="item-list"
-                placeholder="Start typing or select..."
-                value={item}
-                onChange={e => handleItemChange(e.target.value)}
-              />
-              <datalist id="item-list">
-                {itemNames.map(name => <option key={name} value={name} />)}
-              </datalist>
-            </div>
-
-            <div className="form-control">
-              <label className="label py-0.5"><span className="label-text text-xs font-medium">Category</span></label>
-              <select className="select select-bordered select-sm w-full bg-white" value={category} onChange={e => setCategory(e.target.value)}>
-                <option value="">Select...</option>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-
-            <div className="flex gap-2">
-              <div className="form-control flex-1">
-                <label className="label py-0.5"><span className="label-text text-xs font-medium">Quantity *</span></label>
-                <input type="number" className="input input-bordered input-sm w-full bg-white" min={1} value={qty} onChange={e => setQty(parseInt(e.target.value) || 1)} />
+            {/* Row 1: Date — Item Name — Category */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="form-control">
+                <label className="label py-0"><span className="label-text text-[11px] font-medium">📅 Date Received</span></label>
+                <input tabIndex={1} type="date" className="input input-bordered input-xs w-full bg-white" value={dateIn} onChange={e => setDateIn(e.target.value)} />
               </div>
-              <div className="form-control flex-1">
-                <label className="label py-0.5"><span className="label-text text-xs font-medium">Unit</span></label>
-                <select className="select select-bordered select-sm w-full bg-white" value={unit} onChange={e => setUnit(e.target.value)}>
-                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              <div className="form-control">
+                <label className="label py-0"><span className="label-text text-[11px] font-medium">Item Name *</span></label>
+                <input
+                  tabIndex={2}
+                  className="input input-bordered input-xs w-full bg-white"
+                  list="item-list"
+                  placeholder="Start typing or select..."
+                  value={item}
+                  onChange={e => handleItemChange(e.target.value)}
+                />
+                <datalist id="item-list">
+                  {itemNames.map(name => <option key={name} value={name} />)}
+                </datalist>
+              </div>
+              <div className="form-control">
+                <label className="label py-0"><span className="label-text text-[11px] font-medium">Category</span></label>
+                <select tabIndex={3} className="select select-bordered select-xs w-full bg-white" value={category} onChange={e => handleCategoryChange(e.target.value)}>
+                  <option value="">Select...</option>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
             </div>
 
-            <div className="form-control">
-              <label className="label py-0.5"><span className="label-text text-xs font-medium">📥 From (Donor / Source)</span></label>
-              <input
-                className="input input-bordered input-sm w-full bg-white"
-                list="donor-list"
-                placeholder="Start typing donor name..."
-                value={donor}
-                onChange={e => setDonor(e.target.value)}
-              />
-              <datalist id="donor-list">
-                {donors.map(d => <option key={d.id} value={d.name} />)}
-              </datalist>
-              <label className="label py-0"><span className="label-text-alt text-[10px] text-base-content/40">Type first few letters to search. Manage donors in Settings tab.</span></label>
+            {/* Row 2: Qty — Unit — Donor — Value (£) — Best Before */}
+            <div className="grid grid-cols-5 gap-2">
+              <div className="form-control">
+                <label className="label py-0"><span className="label-text text-[11px] font-medium">Qty *</span></label>
+                <input tabIndex={4} type="number" className="input input-bordered input-xs w-full bg-white" min={1} value={qty} onChange={e => setQty(parseInt(e.target.value) || 1)} />
+              </div>
+              <div className="form-control">
+                <label className="label py-0"><span className="label-text text-[11px] font-medium">Unit</span></label>
+                <select tabIndex={5} className="select select-bordered select-xs w-full bg-white" value={unit} onChange={e => setUnit(e.target.value)}>
+                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                </select>
+              </div>
+              <div className="form-control">
+                <label className="label py-0"><span className="label-text text-[11px] font-medium">📥 Donor</span></label>
+                <input
+                  tabIndex={6}
+                  className="input input-bordered input-xs w-full bg-white"
+                  list="donor-list"
+                  placeholder="From (Donor / Source)"
+                  value={donor}
+                  onChange={e => setDonor(e.target.value)}
+                />
+                <datalist id="donor-list">
+                  {donors.map(d => <option key={d.id} value={d.name} />)}
+                </datalist>
+              </div>
+              <div className="form-control">
+                <label className="label py-0"><span className="label-text text-[11px] font-medium">💷 Value (£)</span></label>
+                <input tabIndex={7} type="number" className="input input-bordered input-xs w-full bg-white" min={0} step={0.01} placeholder="0.00" value={unitValue || ''} onChange={e => setUnitValue(parseFloat(e.target.value) || 0)} />
+              </div>
+              <div className="form-control">
+                <label className="label py-0"><span className="label-text text-[11px] font-medium">Best Before</span></label>
+                <input tabIndex={8} type="date" className="input input-bordered input-xs w-full bg-white" value={bestBefore} onChange={e => setBestBefore(e.target.value)} />
+              </div>
             </div>
 
-            <div className="form-control">
-              <label className="label py-0.5"><span className="label-text text-xs font-medium">✍️ Entered By (Initials)</span></label>
-              <div className="flex gap-2">
+            {/* Row 3: Entered By — Total Value display — Add button */}
+            <div className="grid grid-cols-3 gap-2 items-end">
+              <div className="form-control">
+                <label className="label py-0"><span className="label-text text-[11px] font-medium">✍️ Entered By</span></label>
                 <select
-                  className="select select-bordered select-sm bg-white flex-1"
+                  tabIndex={9}
+                  className="select select-bordered select-xs bg-white w-full"
                   value={enteredBy}
                   onChange={e => setEnteredBy(e.target.value)}
                 >
@@ -205,27 +235,23 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                     <option key={v.id} value={v.initials}>{v.initials} — {v.name}</option>
                   ))}
                 </select>
-                <input
-                  className="input input-bordered input-sm bg-white w-20"
-                  placeholder="Or type"
-                  value={enteredBy}
-                  onChange={e => setEnteredBy(e.target.value)}
-                />
               </div>
+              <div className="flex items-end">
+                {unitValue > 0 && qty > 0 && (
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 rounded px-2 py-1">
+                    Total: £{(unitValue * qty).toFixed(2)}
+                  </span>
+                )}
+              </div>
+              <button
+                tabIndex={10}
+                className={`btn btn-xs text-white ${isFridge ? 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600' : 'bg-blue-500 hover:bg-blue-600 border-blue-600'}`}
+                onClick={handleSubmit}
+                disabled={!item.trim() || qty <= 0}
+              >
+                <Plus size={14} /> Add to {isFridge ? 'Fridge' : 'Freezer'}
+              </button>
             </div>
-
-            <div className="form-control">
-              <label className="label py-0.5"><span className="label-text text-xs font-medium">Best Before</span></label>
-              <input type="date" className="input input-bordered input-sm w-full bg-white" value={bestBefore} onChange={e => setBestBefore(e.target.value)} />
-            </div>
-
-            <button
-              className={`btn btn-sm w-full text-white ${isFridge ? 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600' : 'bg-blue-500 hover:bg-blue-600 border-blue-600'}`}
-              onClick={handleSubmit}
-              disabled={!item.trim() || qty <= 0}
-            >
-              <Plus size={16} /> Add to {isFridge ? 'Fridge' : 'Freezer'}
-            </button>
           </div>
         </div>
       )}
@@ -320,6 +346,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                       </div>
                       <div className="text-xs text-base-content/60 space-y-0.5">
                         <div>{i.donor ? `From: ${i.donor}` : 'No donor'}{i.entered_by ? ` · ✍️ ${i.entered_by}` : ''} · {i.date_in} {i.time_in}</div>
+                        {i.unit_value > 0 && <div>💷 Value: <span className="font-medium text-emerald-700">£{i.unit_value.toFixed(2)} × {i.qty_in} = £{(i.unit_value * i.qty_in).toFixed(2)}</span></div>}
                         {i.best_before && <div>📅 Best before: <span className="font-medium">{i.best_before}</span></div>}
                         {i.moved_to && i.moved_date && (
                           <div className="text-purple-600 font-medium">

@@ -18,6 +18,7 @@ export interface InwardItem {
   status: 'available' | 'partial' | 'gone';
   moved_to: string;
   moved_date: string;
+  unit_value: number;
 }
 
 export interface OutwardEntry {
@@ -82,6 +83,7 @@ export interface ArchivedRecord {
   archived_date: string;
   outwards_json: string;
   wastage_json: string;
+  unit_value: number;
 }
 
 export type TabName = 'dashboard' | 'inwards' | 'outwards' | 'wastage' | 'items' | 'reports' | 'history' | 'admin';

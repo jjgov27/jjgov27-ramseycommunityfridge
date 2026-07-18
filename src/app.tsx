@@ -1,4 +1,3 @@
-import './index.css';
 import React, { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LayoutDashboard, ArrowDownToLine, ArrowUpFromLine, Trash2, ListPlus, FileBarChart, Archive, Shield, RefreshCw, User } from 'lucide-react';
@@ -84,7 +83,7 @@ const App: React.FC = () => {
     setRefreshing(false);
   };
 
-  const handleAddInward = async (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, stor: StorageLocation, enteredBy?: string, overrideDate?: string) => {
+  const handleAddInward = async (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, stor: StorageLocation, enteredBy?: string, overrideDate?: string, unitValue?: number) => {
     let formattedBB = bestBefore;
     if (bestBefore && bestBefore.includes('-')) {
       const [y, m, d] = bestBefore.split('-');
@@ -95,7 +94,7 @@ const App: React.FC = () => {
       const [y, m, d] = overrideDate.split('-');
       formattedDate = `${d}/${m}/${y}`;
     }
-    await addInward(item, category, qty, unit, donor, formattedBB, stor, enteredBy || '', formattedDate);
+    await addInward(item, category, qty, unit, donor, formattedBB, stor, enteredBy || '', formattedDate, unitValue || 0);
     await refresh();
   };
 

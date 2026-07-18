@@ -57,8 +57,8 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
   const filteredOutwards = outwards
     .filter(o => o.storage === storage)
     .sort((a, b) => {
-      const sa = statusOrder[inwardStatusMap.get(a.inward_id) || 'gone'] ?? 3;
-      const sb = statusOrder[inwardStatusMap.get(b.inward_id) || 'gone'] ?? 3;
+      const sa = statusOrder[(inwardStatusMap.get(a.inward_id) || 'gone') as string] ?? 3;
+      const sb = statusOrder[(inwardStatusMap.get(b.inward_id) || 'gone') as string] ?? 3;
       return sa - sb;
     });
   const isFridge = storage === 'fridge';
