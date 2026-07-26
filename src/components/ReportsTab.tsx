@@ -195,10 +195,12 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       csv += `Period,${startDate} to ${endDate}\n`;
       if (isFullReport) csv += 'Includes,Live + Archived data\n';
       csv += '\n';
-      csv += 'Date,Time,Item,Quantity,Unit,Category,Location,Moved To,Moved Date,Donor/Source,Volunteer,Best Before,Status\n';
+      csv += 'Date,Time,Item,Quantity,Unit,Category,Location,Moved To,Moved Date,Donor/Source,Volunteer,Best Before,Value (£),Total Value (£),Status\n';
       filteredInwards.forEach(i => {
         const status = i.qty_remaining <= 0 ? 'All Gone' : (i.total_taken > 0 || i.total_wasted > 0) ? 'Partial' : 'Available';
-        csv += `"${i.date_in}","${i.time_in || ''}","${i.item}",${i.qty_in},"${i.unit}","${i.category}","${i.storage}","${i.moved_to || ''}","${i.moved_date || ''}","${i.donor || ''}","${i.entered_by || ''}","${i.best_before || ''}","${status}"\n`;
+        const uv = i.unit_value || 0;
+        const totalVal = uv * i.qty_in;
+        csv += `"${i.date_in}","${i.time_in || ''}","${i.item}",${i.qty_in},"${i.unit}","${i.category}","${i.storage}","${i.moved_to || ''}","${i.moved_date || ''}","${i.donor || ''}","${i.entered_by || ''}","${i.best_before || ''}",${uv > 0 ? uv.toFixed(2) : ''},${totalVal > 0 ? totalVal.toFixed(2) : ''},"${status}"\n`;
       });
       csv += `\nTotal Items In,,,${totalInQty}\nTotal Entries,,,${filteredInwards.length}\n\n`;
 
@@ -339,6 +341,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               <p className="text-2xl font-bold text-green-700">{totalInQty}</p>
               <p className="text-xs text-green-500">Total Received</p>
               <p className="text-xs text-green-400">{filteredInwards.length} entries</p>
+              {(() => { const tv = filteredInwards.reduce((s, i) => s + (i.unit_value || 0) * i.qty_in, 0); return tv > 0 ? <p className="text-xs text-green-600 font-semibold">💷 £{tv.toFixed(2)}</p> : null; })()}
             </div>
           </div>
         )}
@@ -378,7 +381,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                     <thead>
                       <tr className="text-[10px]">
                         <th>Date</th><th>Time</th><th>Item</th><th>Qty</th><th>Location</th>
-                        <th>Moved To</th><th>Moved Date</th><th>Donor</th><th>Volunteer</th>
+                        <th>Moved To</th><th>Moved Date</th><th>Donor</th><th>Volunteer</th><th>Value (£)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -393,6 +396,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                           <td>{i.moved_date || '-'}</td>
                           <td>{i.donor || '-'}</td>
                           <td>{i.entered_by || '-'}</td>
+                          <td>{(i.unit_value || 0) > 0 ? `£${(i.unit_value as number).toFixed(2)}` : '-'}</td>
                         </tr>
                       ))}
                     </tbody>

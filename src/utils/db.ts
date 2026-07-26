@@ -822,9 +822,15 @@ export async function updateWastage(id: number, fields: {
 // ========== EXPORT ARCHIVE TO CSV ==========
 
 export function archiveToCSV(archive: ArchivedRecord[]): string {
-  const headers = ['ID', 'Item', 'Category', 'Qty In', 'Unit', 'Date In', 'Storage', 'Donor', 'Best Before', 'Total Taken', 'Total Wasted', 'Archived Date'];
-  const rows = archive.map(a => [
-    a.id, a.item, a.category, a.qty_in, a.unit, a.date_in, a.storage, a.donor, a.best_before, a.total_taken, a.total_wasted, a.archived_date
-  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  const headers = ['ID', 'Item', 'Category', 'Qty In', 'Unit', 'Date In', 'Storage', 'Donor', 'Best Before', 'Value (£)', 'Total Value (£)', 'Total Taken', 'Total Wasted', 'Archived Date'];
+  const rows = archive.map(a => {
+    const uv = a.unit_value || 0;
+    const totalVal = uv * a.qty_in;
+    return [
+      a.id, a.item, a.category, a.qty_in, a.unit, a.date_in, a.storage, a.donor, a.best_before,
+      uv > 0 ? uv.toFixed(2) : '', totalVal > 0 ? totalVal.toFixed(2) : '',
+      a.total_taken, a.total_wasted, a.archived_date
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+  });
   return [headers.join(','), ...rows].join('\n');
 }
