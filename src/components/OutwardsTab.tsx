@@ -41,6 +41,7 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
   const [takeAllRecBy, setTakeAllRecBy] = useState(activeVolunteer);
   const [takeAllDate, setTakeAllDate] = useState(todayISO());
   const [takeAllConfirm, setTakeAllConfirm] = useState(false);
+  const [takeAllBusy, setTakeAllBusy] = useState(false);
   const [takeAllDone, setTakeAllDone] = useState('');
   const [takeAllError, setTakeAllError] = useState('');
   const takeAllTimer = useRef<any>(null);
@@ -186,8 +187,11 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
               </button>
             ) : (
               <button
-                className="btn btn-sm w-full bg-red-500 hover:bg-red-600 border-red-600 text-white animate-pulse"
+                className={`btn btn-sm w-full text-white ${takeAllBusy ? 'bg-gray-400 border-gray-400 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600 border-red-600 animate-pulse'}`}
+                disabled={takeAllBusy}
                 onClick={async () => {
+                  if (takeAllBusy) return;
+                  setTakeAllBusy(true);
                   clearTimeout(takeAllTimer.current);
                   setTakeAllError('');
                   try {
@@ -197,10 +201,12 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
                   } catch (err: any) {
                     setTakeAllError(`Failed: ${err?.message || 'Unknown error'}`);
                     setTakeAllConfirm(false);
+                  } finally {
+                    setTakeAllBusy(false);
                   }
                 }}
               >
-                ⚠️ CONFIRM — Take All {availableItems.length} Items Out
+                {takeAllBusy ? '⏳ Processing...' : `⚠️ CONFIRM — Take All ${availableItems.length} Items Out`}
               </button>
             )}
           </div>
