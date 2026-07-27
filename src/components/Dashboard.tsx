@@ -43,7 +43,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ inwards, outwards, wastage
     const expired: InwardItem[] = [];
     const critical: InwardItem[] = []; // today/tomorrow
     const warning: InwardItem[] = [];  // within 7 days
-    filtered.filter(i => i.best_before && i.status !== 'gone').forEach(i => {
+    filtered.filter(i => i.best_before && i.status !== 'gone' && (!i.moved_to || i.moved_to.toLowerCase() !== 'freezer')).forEach(i => {
       const parts = i.best_before!.split('/');
       if (parts.length !== 3) return;
       const expDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
