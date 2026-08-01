@@ -1,4 +1,3 @@
-// deploy trigger v2
 import React, { useState, useMemo } from 'react';
 import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem, Volunteer, Donor } from '../types';
 import { Plus, Trash2, ChevronUp, ChevronDown, Snowflake, ThermometerSun, ArrowRightLeft, Pencil, Check, X } from 'lucide-react';
@@ -231,19 +230,19 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
     })
     .sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
 
-  // Group consecutive same-item entries by item+date+donor+category
+  // Group same-item entries by item+date+donor+category (regardless of position)
   const grouped = useMemo(() => {
-    const groups: { key: string; items: InwardItem[] }[] = [];
+    const map = new Map<string, { key: string; items: InwardItem[] }>();
     for (const item of filtered) {
       const key = `${item.item.toLowerCase()}|${item.date_in}|${(item.donor || '').toLowerCase()}|${item.category}`;
-      const last = groups[groups.length - 1];
-      if (last && last.key === key) {
-        last.items.push(item);
+      const existing = map.get(key);
+      if (existing) {
+        existing.items.push(item);
       } else {
-        groups.push({ key, items: [item] });
+        map.set(key, { key, items: [item] });
       }
     }
-    return groups;
+    return Array.from(map.values());
   }, [filtered]);
 
   const toggleGroup = (key: string) => {
