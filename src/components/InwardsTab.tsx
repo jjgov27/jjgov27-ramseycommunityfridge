@@ -1,8 +1,116 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem, Volunteer, Donor } from '../types';
-import { Plus, Trash2, ChevronUp, Snowflake, ThermometerSun, ArrowRightLeft, Pencil, Check, X } from 'lucide-react';
+import { Plus, Trash2, ChevronUp, ChevronDown, Snowflake, ThermometerSun, ArrowRightLeft, Pencil, Check, X } from 'lucide-react';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
+
+/* Reusable single-item card — used standalone and inside grouped entries */
+const SingleItemCard: React.FC<{
+  i: InwardItem; editingId: string | null; editItem: string; setEditItem: (v: string) => void;
+  editCategory: string; setEditCategory: (v: string) => void; editQty: number; setEditQty: (v: number) => void;
+  editDonor: string; setEditDonor: (v: string) => void; editBestBefore: string; setEditBestBefore: (v: string) => void;
+  editEnteredBy: string; setEditEnteredBy: (v: string) => void; saveEdit: () => void;
+  setEditingId: (id: string | null) => void; startEdit: (i: InwardItem) => void;
+  onMove: (id: string, s: StorageLocation) => void; onDelete: (id: string) => void; compact?: boolean;
+}> = ({ i, editingId, editItem, setEditItem, editCategory, setEditCategory, editQty, setEditQty, editDonor, setEditDonor, editBestBefore, setEditBestBefore, editEnteredBy, setEditEnteredBy, saveEdit, setEditingId, startEdit, onMove, onDelete, compact }) => {
+  const catColour = CATEGORY_COLOURS[i.category] || CATEGORY_COLOURS['Other'];
+  const statusColour = i.status === 'available'
+    ? 'border-l-emerald-500 bg-gradient-to-r from-emerald-50/50 to-transparent'
+    : i.status === 'partial'
+    ? 'border-l-amber-500 bg-gradient-to-r from-amber-50/50 to-transparent'
+    : 'border-l-red-500 bg-gradient-to-r from-red-50/50 to-transparent';
+  const moveTarget: StorageLocation = i.storage === 'fridge' ? 'freezer' : 'fridge';
+
+  const inner = (
+    <>
+      {editingId === i.id ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="font-mono text-xs bg-base-200 px-1.5 py-0.5 rounded">{i.id}</span>
+            <span className="text-xs font-bold text-blue-600">✏️ Editing</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className="text-[10px] text-base-content/50 font-medium">Item Name</label>
+              <input className="input input-bordered input-xs w-full" value={editItem} onChange={e => setEditItem(e.target.value)} /></div>
+            <div><label className="text-[10px] text-base-content/50 font-medium">Category</label>
+              <select className="select select-bordered select-xs w-full" value={editCategory} onChange={e => setEditCategory(e.target.value)}>
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select></div>
+            <div><label className="text-[10px] text-base-content/50 font-medium">Quantity</label>
+              <input type="number" className="input input-bordered input-xs w-full" min={1} value={editQty} onChange={e => setEditQty(Number(e.target.value))} /></div>
+            <div><label className="text-[10px] text-base-content/50 font-medium">Donor</label>
+              <input className="input input-bordered input-xs w-full" value={editDonor} onChange={e => setEditDonor(e.target.value)} /></div>
+            <div><label className="text-[10px] text-base-content/50 font-medium">Best Before</label>
+              <input className="input input-bordered input-xs w-full" value={editBestBefore} onChange={e => setEditBestBefore(e.target.value)} /></div>
+            <div><label className="text-[10px] text-base-content/50 font-medium">Entered By</label>
+              <input className="input input-bordered input-xs w-full" value={editEnteredBy} onChange={e => setEditEnteredBy(e.target.value)} /></div>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button className="btn btn-success btn-xs gap-1" onClick={saveEdit}><Check size={12} /> Save</button>
+            <button className="btn btn-ghost btn-xs gap-1" onClick={() => setEditingId(null)}><X size={12} /> Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <span className="font-mono text-xs bg-base-200 px-1.5 py-0.5 rounded">{i.id}</span>
+              <span className={`font-bold ${compact ? 'text-xs' : 'text-sm'}`}>{i.item}</span>
+              {!compact && <span className={`text-xs px-2 py-0.5 rounded-full border ${catColour}`}>{i.category}</span>}
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                i.status === 'available' ? 'bg-emerald-100 text-emerald-700' :
+                i.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+              }`}>
+                {i.status === 'available' ? '● Available' : i.status === 'partial' ? '◐ Partial' : '○ Gone'}
+              </span>
+            </div>
+            <div className="text-xs text-base-content/60 space-y-0.5">
+              <div>{i.donor ? `From: ${i.donor}` : 'No donor'}{i.entered_by ? ` · ✍️ ${i.entered_by}` : ''} · {i.date_in} {i.time_in}</div>
+              {i.unit_value > 0 && <div>💷 Value: <span className="font-medium text-emerald-700">£{i.unit_value.toFixed(2)} × {i.qty_in} = £{(i.unit_value * i.qty_in).toFixed(2)}</span></div>}
+              {i.best_before && <div>📅 Best before: <span className="font-medium">{i.best_before}</span></div>}
+              {i.moved_to && i.moved_date && (
+                <div className="text-purple-600 font-medium">↪ Moved to {i.moved_to === 'fridge' ? '🧊 Fridge' : '❄️ Freezer'} on {i.moved_date}</div>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <button className="btn btn-ghost btn-xs text-blue-400 hover:text-blue-600 hover:bg-blue-50" onClick={() => startEdit(i)} title="Edit"><Pencil size={14} /></button>
+            {i.status !== 'gone' && (
+              <button className="btn btn-ghost btn-xs text-purple-500 hover:text-purple-700 hover:bg-purple-50" onClick={() => onMove(i.id, moveTarget)} title={`Move to ${moveTarget}`}>
+                <ArrowRightLeft size={14} /><span className="text-[10px]">{moveTarget === 'fridge' ? '🧊' : '❄️'}</span>
+              </button>
+            )}
+            <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDelete(i.id)}><Trash2 size={14} /></button>
+          </div>
+        </div>
+      )}
+
+      {/* Quantity bar */}
+      <div className="mt-2">
+        <div className="flex justify-between text-xs mb-1 font-medium">
+          <span className="text-base-content/70">In: {i.qty_in} {i.unit}</span>
+          <span className="text-blue-600">Out: {i.total_taken}</span>
+          <span className="text-red-600">Waste: {i.total_wasted}</span>
+          <span className={`font-bold ${i.qty_remaining > 0 ? 'text-emerald-700' : 'text-red-700'}`}>Left: {i.qty_remaining}</span>
+        </div>
+        <div className="w-full bg-base-300 rounded-full h-2.5 overflow-hidden">
+          <div className={`h-full rounded-full transition-all ${
+            i.qty_remaining <= 0 ? 'bg-red-500' : i.qty_remaining < i.qty_in ? 'bg-amber-500' : 'bg-emerald-500'
+          }`} style={{ width: `${Math.max(0, (i.qty_remaining / i.qty_in) * 100)}%` }} />
+        </div>
+      </div>
+    </>
+  );
+
+  // When used inside a group (compact), don't wrap in outer card
+  if (compact) return <div>{inner}</div>;
+
+  return (
+    <div className={`rounded-xl border border-base-300 border-l-4 ${statusColour} overflow-hidden`}>
+      <div className="p-3">{inner}</div>
+    </div>
+  );
+};
 
 interface InwardsTabProps {
   inwards: InwardItem[];
@@ -104,6 +212,8 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
     setShowForm(false);
   };
 
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
   const statusOrder: Record<string, number> = { available: 0, partial: 1, gone: 2 };
   const filtered = inwards
     .filter(i => i.storage === storage)
@@ -113,6 +223,29 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
       return true;
     })
     .sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
+
+  // Group consecutive same-item entries by item+date+donor+category
+  const grouped = useMemo(() => {
+    const groups: { key: string; items: InwardItem[] }[] = [];
+    for (const item of filtered) {
+      const key = `${item.item.toLowerCase()}|${item.date_in}|${(item.donor || '').toLowerCase()}|${item.category}`;
+      const last = groups[groups.length - 1];
+      if (last && last.key === key) {
+        last.items.push(item);
+      } else {
+        groups.push({ key, items: [item] });
+      }
+    }
+    return groups;
+  }, [filtered]);
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   const isFridge = storage === 'fridge';
 
@@ -276,125 +409,89 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
               : 'No items match your filter.'}
           </div>
         ) : (
-          filtered.map(i => {
-            const catColour = CATEGORY_COLOURS[i.category] || CATEGORY_COLOURS['Other'];
-            const statusColour = i.status === 'available'
+          grouped.map(group => {
+            // Single-item groups render normally (no grouping header)
+            if (group.items.length === 1) {
+              const i = group.items[0];
+              return <SingleItemCard key={i.id} i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} />;
+            }
+
+            // Multi-item group — consolidated card
+            const totalQtyIn = group.items.reduce((s, i) => s + i.qty_in, 0);
+            const totalTaken = group.items.reduce((s, i) => s + i.total_taken, 0);
+            const totalWasted = group.items.reduce((s, i) => s + i.total_wasted, 0);
+            const totalRemaining = group.items.reduce((s, i) => s + i.qty_remaining, 0);
+            const totalValue = group.items.reduce((s, i) => s + (i.unit_value || 0) * i.qty_in, 0);
+            const first = group.items[0];
+            const catColour = CATEGORY_COLOURS[first.category] || CATEGORY_COLOURS['Other'];
+            const isExpanded = expandedGroups.has(group.key);
+
+            // Group status: available if any remaining, partial if some gone, gone if all gone
+            const groupStatus = totalRemaining <= 0 ? 'gone' : totalRemaining < totalQtyIn ? 'partial' : 'available';
+            const statusColour = groupStatus === 'available'
               ? 'border-l-emerald-500 bg-gradient-to-r from-emerald-50/50 to-transparent'
-              : i.status === 'partial'
+              : groupStatus === 'partial'
               ? 'border-l-amber-500 bg-gradient-to-r from-amber-50/50 to-transparent'
               : 'border-l-red-500 bg-gradient-to-r from-red-50/50 to-transparent';
 
-            const moveTarget: StorageLocation = i.storage === 'fridge' ? 'freezer' : 'fridge';
-
             return (
-              <div key={i.id} className={`rounded-xl border border-base-300 border-l-4 ${statusColour} overflow-hidden`}>
-                <div className="p-3">
-                  {editingId === i.id ? (
-                    /* ===== INLINE EDIT MODE ===== */
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="font-mono text-xs bg-base-200 px-1.5 py-0.5 rounded">{i.id}</span>
-                        <span className="text-xs font-bold text-blue-600">✏️ Editing</span>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] text-base-content/50 font-medium">Item Name</label>
-                          <input className="input input-bordered input-xs w-full" value={editItem} onChange={e => setEditItem(e.target.value)} />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-base-content/50 font-medium">Category</label>
-                          <select className="select select-bordered select-xs w-full" value={editCategory} onChange={e => setEditCategory(e.target.value)}>
-                            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-base-content/50 font-medium">Quantity</label>
-                          <input type="number" className="input input-bordered input-xs w-full" min={1} value={editQty} onChange={e => setEditQty(Number(e.target.value))} />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-base-content/50 font-medium">Donor</label>
-                          <input className="input input-bordered input-xs w-full" value={editDonor} onChange={e => setEditDonor(e.target.value)} />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-base-content/50 font-medium">Best Before</label>
-                          <input className="input input-bordered input-xs w-full" value={editBestBefore} onChange={e => setEditBestBefore(e.target.value)} />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-base-content/50 font-medium">Entered By</label>
-                          <input className="input input-bordered input-xs w-full" value={editEnteredBy} onChange={e => setEditEnteredBy(e.target.value)} />
-                        </div>
-                      </div>
-                      <div className="flex gap-2 pt-1">
-                        <button className="btn btn-success btn-xs gap-1" onClick={saveEdit}><Check size={12} /> Save</button>
-                        <button className="btn btn-ghost btn-xs gap-1" onClick={() => setEditingId(null)}><X size={12} /> Cancel</button>
-                      </div>
-                    </div>
-                  ) : (
-                    /* ===== NORMAL VIEW MODE ===== */
+              <div key={group.key} className={`rounded-xl border border-base-300 border-l-4 ${statusColour} overflow-hidden`}>
+                {/* Grouped summary header */}
+                <div className="p-3 cursor-pointer" onClick={() => toggleGroup(group.key)}>
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-mono text-xs bg-base-200 px-1.5 py-0.5 rounded">{i.id}</span>
-                        <span className="font-bold text-sm">{i.item}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full border ${catColour}`}>{i.category}</span>
+                        <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-bold">×{group.items.length}</span>
+                        <span className="font-bold text-sm">{first.item} × {totalQtyIn}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full border ${catColour}`}>{first.category}</span>
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          i.status === 'available' ? 'bg-emerald-100 text-emerald-700' :
-                          i.status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                          groupStatus === 'available' ? 'bg-emerald-100 text-emerald-700' :
+                          groupStatus === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
                         }`}>
-                          {i.status === 'available' ? '● Available' : i.status === 'partial' ? '◐ Partial' : '○ Gone'}
+                          {groupStatus === 'available' ? '● Available' : groupStatus === 'partial' ? '◐ Partial' : '○ Gone'}
                         </span>
                       </div>
                       <div className="text-xs text-base-content/60 space-y-0.5">
-                        <div>{i.donor ? `From: ${i.donor}` : 'No donor'}{i.entered_by ? ` · ✍️ ${i.entered_by}` : ''} · {i.date_in} {i.time_in}</div>
-                        {i.unit_value > 0 && <div>💷 Value: <span className="font-medium text-emerald-700">£{i.unit_value.toFixed(2)} × {i.qty_in} = £{(i.unit_value * i.qty_in).toFixed(2)}</span></div>}
-                        {i.best_before && <div>📅 Best before: <span className="font-medium">{i.best_before}</span></div>}
-                        {i.moved_to && i.moved_date && (
-                          <div className="text-purple-600 font-medium">
-                            ↪ Moved to {i.moved_to === 'fridge' ? '🧊 Fridge' : '❄️ Freezer'} on {i.moved_date}
-                          </div>
-                        )}
+                        <div>{first.donor ? `From: ${first.donor}` : 'No donor'} · {first.date_in}</div>
+                        {totalValue > 0 && <div>💷 Total Value: <span className="font-medium text-emerald-700">£{totalValue.toFixed(2)}</span></div>}
                       </div>
                     </div>
-                    <div className="flex flex-col gap-1">
-                      <button className="btn btn-ghost btn-xs text-blue-400 hover:text-blue-600 hover:bg-blue-50" onClick={() => startEdit(i)} title="Edit">
-                        <Pencil size={14} />
-                      </button>
-                      {i.status !== 'gone' && (
-                        <button
-                          className="btn btn-ghost btn-xs text-purple-500 hover:text-purple-700 hover:bg-purple-50"
-                          onClick={() => onMove(i.id, moveTarget)}
-                          title={`Move to ${moveTarget}`}
-                        >
-                          <ArrowRightLeft size={14} />
-                          <span className="text-[10px]">{moveTarget === 'fridge' ? '🧊' : '❄️'}</span>
-                        </button>
-                      )}
-                      <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDelete(i.id)}>
-                        <Trash2 size={14} />
-                      </button>
+                    <div className="flex items-center gap-1 text-base-content/40">
+                      {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                     </div>
                   </div>
-                  )}
 
-                  {/* Quantity bar */}
+                  {/* Combined quantity bar */}
                   <div className="mt-2">
                     <div className="flex justify-between text-xs mb-1 font-medium">
-                      <span className="text-base-content/70">In: {i.qty_in} {i.unit}</span>
-                      <span className="text-blue-600">Out: {i.total_taken}</span>
-                      <span className="text-red-600">Waste: {i.total_wasted}</span>
-                      <span className={`font-bold ${i.qty_remaining > 0 ? 'text-emerald-700' : 'text-red-700'}`}>Left: {i.qty_remaining}</span>
+                      <span className="text-base-content/70">In: {totalQtyIn} {first.unit}</span>
+                      <span className="text-blue-600">Out: {totalTaken}</span>
+                      <span className="text-red-600">Waste: {totalWasted}</span>
+                      <span className={`font-bold ${totalRemaining > 0 ? 'text-emerald-700' : 'text-red-700'}`}>Left: {totalRemaining}</span>
                     </div>
                     <div className="w-full bg-base-300 rounded-full h-2.5 overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all ${
-                          i.qty_remaining <= 0 ? 'bg-red-500' :
-                          i.qty_remaining < i.qty_in ? 'bg-amber-500' : 'bg-emerald-500'
+                          totalRemaining <= 0 ? 'bg-red-500' :
+                          totalRemaining < totalQtyIn ? 'bg-amber-500' : 'bg-emerald-500'
                         }`}
-                        style={{ width: `${Math.max(0, (i.qty_remaining / i.qty_in) * 100)}%` }}
+                        style={{ width: `${Math.max(0, (totalRemaining / totalQtyIn) * 100)}%` }}
                       />
                     </div>
                   </div>
                 </div>
+
+                {/* Expanded individual entries */}
+                {isExpanded && (
+                  <div className="border-t border-base-300 bg-base-100/50">
+                    <div className="px-3 py-1.5 text-[10px] font-bold text-base-content/40 uppercase tracking-wider">Individual Entries</div>
+                    {group.items.map(i => (
+                      <div key={i.id} className="border-t border-base-200 px-3 py-2">
+                        <SingleItemCard i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} compact />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })
