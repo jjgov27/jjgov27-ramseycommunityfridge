@@ -215,7 +215,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
     setBestBefore('');
     setDateIn(todayISO());
     setUnitValue(0);
-    setShowForm(false);
+    // Form stays open for rapid entry
   };
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
