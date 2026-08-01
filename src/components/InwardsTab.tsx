@@ -168,10 +168,16 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
   customItems.forEach(ci => { allItems[ci.name] = ci.category; });
   const itemNames = Object.keys(allItems).sort();
 
+  const tomorrowISO = () => {
+    const d = new Date(); d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  };
+
   const applyMeatDefaults = (cat: string) => {
     if (cat === 'Meat') {
       setUnit('packs');
       if (!donor) setDonor('W E Teare');
+      if (!bestBefore) setBestBefore(tomorrowISO());
     }
   };
 
