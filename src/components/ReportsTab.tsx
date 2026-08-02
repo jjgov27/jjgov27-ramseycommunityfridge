@@ -38,7 +38,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
 
   const [startDate, setStartDate] = useState(toISODate(thirtyDaysAgo));
   const [endDate, setEndDate] = useState(toISODate(today));
-  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly' | 'custom'>('inwards');
+  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly' | 'custom' | 'stockcheck'>('inwards');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -276,7 +276,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   return (
     <div className="space-y-3">
       {/* Storage toggle - hidden for Full Report */}
-      {!isFullReport && (
+      {!isFullReport && reportType !== 'custom' && reportType !== 'stockcheck' && (
         <div className="flex items-center gap-2">
           <button className={`btn btn-xs ${storage === 'fridge' ? 'btn-success' : 'btn-ghost'}`} onClick={() => onStorageChange('fridge')}>🧊 Fridge</button>
           <button className={`btn btn-xs ${storage === 'freezer' ? 'btn-info' : 'btn-ghost'}`} onClick={() => onStorageChange('freezer')}>❄️ Freezer</button>
@@ -299,7 +299,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {reportType !== 'monthly' && reportType !== 'custom' && (
+            {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && (
               <>
                 <div className="flex-1 min-w-[120px]">
                   <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Calendar size={10} /> From</label>
@@ -320,11 +320,12 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                 <option value="all">📊 Full Report (All)</option>
                 <option value="monthly">🥧 Monthly Pie Charts</option>
                 <option value="custom">📋 Custom Report Builder</option>
+                <option value="stockcheck">📋 Stock Check</option>
               </select>
             </div>
           </div>
 
-          {reportType !== 'monthly' && reportType !== 'custom' && (
+          {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && (
             <button className="btn btn-xs btn-primary gap-1" onClick={downloadCSV}>
               <Download size={12} /> Download CSV
             </button>
@@ -396,7 +397,6 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                           <td>{i.moved_date || '-'}</td>
                           <td>{i.donor || '-'}</td>
                           <td>{i.entered_by || '-'}</td>
-                          <td>{(i.unit_value || 0) > 0 ? `£${(i.unit_value as number).toFixed(2)}` : '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -983,6 +983,243 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           </div>
         );
       })()}
+
+      {reportType === 'stockcheck' && (() => {
+  // Group current live stock by storage location
+  const fridgeItems = inwards.filter(i => {
+    const loc = i.moved_to || i.storage;
+    return loc === 'fridge' && (i.qty_remaining ?? (i.qty_in - (i.total_taken || 0) - (i.total_wasted || 0))) > 0;
+  });
+  const freezerItems = inwards.filter(i => {
+    const loc = i.moved_to || i.storage;
+    return loc === 'freezer' && (i.qty_remaining ?? (i.qty_in - (i.total_taken || 0) - (i.total_wasted || 0))) > 0;
+  });
+  
+  const getRemaining = (i: any) => i.qty_remaining ?? (i.qty_in - (i.total_taken || 0) - (i.total_wasted || 0));
+  
+  // Group by item name + category for summary
+  const groupItems = (items: typeof inwards) => {
+    const map: Record<string, { item: string; category: string; totalQty: number; unit: string; bestBefore: string[]; entries: typeof items }> = {};
+    items.forEach(i => {
+      const key = `${i.item}||${i.category}`;
+      if (!map[key]) map[key] = { item: i.item, category: i.category, totalQty: 0, unit: i.unit || '', bestBefore: [], entries: [] };
+      const rem = getRemaining(i);
+      map[key].totalQty += rem;
+      if (i.best_before) map[key].bestBefore.push(i.best_before);
+      map[key].entries.push(i);
+    });
+    return Object.values(map).sort((a, b) => a.item.localeCompare(b.item));
+  };
+  
+  const fridgeGrouped = groupItems(fridgeItems);
+  const freezerGrouped = groupItems(freezerItems);
+  const totalFridge = fridgeGrouped.reduce((s, g) => s + g.totalQty, 0);
+  const totalFreezer = freezerGrouped.reduce((s, g) => s + g.totalQty, 0);
+  
+  const downloadStockCheck = () => {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    
+    const renderTable = (title: string, emoji: string, groups: typeof fridgeGrouped, total: number) => {
+      if (groups.length === 0) return `<p style="color:#94a3b8;font-size:13px;">No items in ${title.toLowerCase()}</p>`;
+      return `
+        <h2 style="font-size:18px;color:#16a34a;margin:20px 0 8px;border-bottom:2px solid #16a34a;padding-bottom:4px;">${emoji} ${title} — ${total} items</h2>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#f0fdf4;border-bottom:2px solid #16a34a;">
+              <th style="text-align:left;padding:6px 8px;font-weight:700;">Item</th>
+              <th style="text-align:left;padding:6px 8px;font-weight:700;">Category</th>
+              <th style="text-align:center;padding:6px 8px;font-weight:700;">Qty</th>
+              <th style="text-align:left;padding:6px 8px;font-weight:700;">Best Before</th>
+              <th style="text-align:center;padding:6px 8px;font-weight:700;width:60px;">✓</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${groups.map((g, idx) => {
+              const bb = g.bestBefore.length > 0 ? g.bestBefore.join(', ') : '-';
+              const catColor = g.category === 'Meat' ? '#dc2626' : g.category === 'Bakery' ? '#d97706' : g.category === 'Vegetables' ? '#16a34a' : g.category === 'Dairy' ? '#2563eb' : '#6b7280';
+              return `<tr style="border-bottom:1px solid #e2e8f0;${idx % 2 === 1 ? 'background:#f8fafc;' : ''}">
+                <td style="padding:5px 8px;font-weight:600;">${g.item}</td>
+                <td style="padding:5px 8px;"><span style="color:${catColor};font-weight:500;">${g.category}</span></td>
+                <td style="padding:5px 8px;text-align:center;font-weight:700;font-size:15px;">${g.totalQty}</td>
+                <td style="padding:5px 8px;font-size:12px;color:#64748b;">${bb}</td>
+                <td style="padding:5px 8px;text-align:center;"><span style="display:inline-block;width:18px;height:18px;border:2px solid #94a3b8;border-radius:3px;"></span></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="border-top:2px solid #16a34a;background:#f0fdf4;">
+              <td style="padding:6px 8px;font-weight:700;" colspan="2">TOTAL</td>
+              <td style="padding:6px 8px;text-align:center;font-weight:800;font-size:16px;">${total}</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>`;
+    };
+    
+    const html = `<!DOCTYPE html><html><head><title>Stock Check — ${dateStr}</title>
+      <style>
+        body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #1e293b; max-width: 800px; margin: 0 auto; }
+        h1 { font-size: 22px; color: #16a34a; margin-bottom: 2px; text-align: center; }
+        .subtitle { text-align: center; color: #64748b; font-size: 12px; margin-bottom: 20px; }
+        .summary { display: flex; gap: 16px; justify-content: center; margin-bottom: 20px; }
+        .summary-card { padding: 12px 20px; border-radius: 8px; text-align: center; border: 1px solid #e2e8f0; }
+        .summary-card .num { font-size: 24px; font-weight: 800; }
+        .summary-card .label { font-size: 11px; color: #64748b; }
+        .notes { margin-top: 24px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+        .notes h3 { font-size: 14px; margin: 0 0 8px; }
+        .notes-lines { border-top: 1px solid #e2e8f0; min-height: 80px; }
+        .notes-lines div { border-bottom: 1px solid #f1f5f9; height: 24px; }
+        @media print { body { padding: 10px; } }
+      </style>
+    </head><body>
+      <h1>📋 Ramsey Community Fridge — Stock Check</h1>
+      <p class="subtitle">${dateStr} at ${timeStr} | Living Hope, Commerce House, Bowring Road, Ramsey IM8 2LQ</p>
+      <div class="summary">
+        <div class="summary-card" style="background:#eff6ff;border-color:#bfdbfe;">
+          <div class="num" style="color:#2563eb;">${totalFridge}</div>
+          <div class="label">❄️ Fridge Items</div>
+        </div>
+        <div class="summary-card" style="background:#f0f9ff;border-color:#bae6fd;">
+          <div class="num" style="color:#0284c7;">${totalFreezer}</div>
+          <div class="label">🧊 Freezer Items</div>
+        </div>
+        <div class="summary-card" style="background:#f0fdf4;border-color:#bbf7d0;">
+          <div class="num" style="color:#16a34a;">${totalFridge + totalFreezer}</div>
+          <div class="label">📦 Total Stock</div>
+        </div>
+      </div>
+      ${renderTable('Fridge', '❄️', fridgeGrouped, totalFridge)}
+      ${renderTable('Freezer', '🧊', freezerGrouped, totalFreezer)}
+      <div class="notes">
+        <h3>📝 Notes</h3>
+        <div class="notes-lines">${Array(4).fill('<div></div>').join('')}</div>
+      </div>
+      <p style="text-align:center;color:#94a3b8;font-size:10px;margin-top:16px;">Generated from Ramsey Community Fridge App</p>
+    </body></html>`;
+    
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Stock-Check-${now.toISOString().split('T')[0]}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  
+  // CSV download
+  const downloadStockCSV = () => {
+    let csv = 'Location,Item,Category,Quantity,Best Before\n';
+    const addRows = (loc: string, groups: typeof fridgeGrouped) => {
+      groups.forEach(g => {
+        const bb = g.bestBefore.length > 0 ? g.bestBefore.join('; ') : '';
+        csv += `"${loc}","${g.item}","${g.category}",${g.totalQty},"${bb}"\n`;
+      });
+    };
+    addRows('Fridge', fridgeGrouped);
+    addRows('Freezer', freezerGrouped);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Stock-Check-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const getRemaining2 = (i: any) => i.qty_remaining ?? (i.qty_in - (i.total_taken || 0) - (i.total_wasted || 0));
+
+  return (
+    <div className="space-y-3">
+      {/* Header with buttons */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-sm font-bold text-green-700">📋 Stock Check — {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+        <div className="flex gap-1">
+          <button className="btn btn-xs btn-primary gap-1" onClick={downloadStockCheck}>🖨️ Print</button>
+          <button className="btn btn-xs btn-secondary gap-1" onClick={downloadStockCSV}><Download size={12} /> CSV</button>
+        </div>
+      </div>
+      
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="card bg-blue-50 border border-blue-200 p-3 text-center">
+          <p className="text-2xl font-black text-blue-700">{totalFridge}</p>
+          <p className="text-[10px] text-blue-600 font-medium">❄️ Fridge</p>
+        </div>
+        <div className="card bg-cyan-50 border border-cyan-200 p-3 text-center">
+          <p className="text-2xl font-black text-cyan-700">{totalFreezer}</p>
+          <p className="text-[10px] text-cyan-600 font-medium">🧊 Freezer</p>
+        </div>
+        <div className="card bg-green-50 border border-green-200 p-3 text-center">
+          <p className="text-2xl font-black text-green-700">{totalFridge + totalFreezer}</p>
+          <p className="text-[10px] text-green-600 font-medium">📦 Total</p>
+        </div>
+      </div>
+      
+      {/* Fridge section */}
+      {fridgeGrouped.length > 0 && (
+        <div className="card bg-base-100 border border-base-300 shadow-sm">
+          <div className="card-body p-3 space-y-2">
+            <p className="text-xs font-bold text-blue-700">❄️ Fridge — {fridgeGrouped.length} items, {totalFridge} total qty</p>
+            <div className="overflow-x-auto">
+              <table className="table table-xs w-full">
+                <thead><tr className="text-[10px]"><th>Item</th><th>Category</th><th className="text-center">Qty</th><th>Best Before</th></tr></thead>
+                <tbody>
+                  {fridgeGrouped.map((g, idx) => {
+                    const catCls = CATEGORY_COLOURS[g.category] || 'bg-gray-100 text-gray-700';
+                    return (
+                      <tr key={idx} className="text-[10px]">
+                        <td className="font-semibold">{g.item}</td>
+                        <td><span className={`text-[9px] px-1.5 py-0.5 rounded-full ${catCls}`}>{g.category}</span></td>
+                        <td className="text-center font-bold text-blue-600">{g.totalQty}</td>
+                        <td className="text-base-content/60">{g.bestBefore.length > 0 ? g.bestBefore.join(', ') : '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Freezer section */}
+      {freezerGrouped.length > 0 && (
+        <div className="card bg-base-100 border border-base-300 shadow-sm">
+          <div className="card-body p-3 space-y-2">
+            <p className="text-xs font-bold text-cyan-700">🧊 Freezer — {freezerGrouped.length} items, {totalFreezer} total qty</p>
+            <div className="overflow-x-auto">
+              <table className="table table-xs w-full">
+                <thead><tr className="text-[10px]"><th>Item</th><th>Category</th><th className="text-center">Qty</th><th>Best Before</th></tr></thead>
+                <tbody>
+                  {freezerGrouped.map((g, idx) => {
+                    const catCls = CATEGORY_COLOURS[g.category] || 'bg-gray-100 text-gray-700';
+                    return (
+                      <tr key={idx} className="text-[10px]">
+                        <td className="font-semibold">{g.item}</td>
+                        <td><span className={`text-[9px] px-1.5 py-0.5 rounded-full ${catCls}`}>{g.category}</span></td>
+                        <td className="text-center font-bold text-cyan-600">{g.totalQty}</td>
+                        <td className="text-base-content/60">{g.bestBefore.length > 0 ? g.bestBefore.join(', ') : '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {fridgeGrouped.length === 0 && freezerGrouped.length === 0 && (
+        <div className="text-center py-8 text-base-content/40">
+          <p className="text-lg">📦</p>
+          <p className="text-sm">No items currently in stock</p>
+        </div>
+      )}
+    </div>
+  );
+})()}
 
       {(reportType === 'all') && (() => {
         const volMap: Record<string, { inQty: number; inCount: number; outQty: number; outCount: number; wasteQty: number; wasteCount: number }> = {};
