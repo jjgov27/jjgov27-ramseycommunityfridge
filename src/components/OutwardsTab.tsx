@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS, Volunteer } from '../types';
 import { Minus, Trash2, ChevronUp, Snowflake, ThermometerSun, CheckCheck, Pencil, Check, X } from 'lucide-react';
 
@@ -45,6 +45,8 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
   const [takeAllDone, setTakeAllDone] = useState('');
   const [takeAllError, setTakeAllError] = useState('');
   const takeAllTimer = useRef<any>(null);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const [selectedId, setSelectedId] = useState('');
   const [qtyTaken, setQtyTaken] = useState(1);
   const [takenBy, setTakenBy] = useState('');
@@ -63,6 +65,32 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
       return sa - sb;
     });
   const isFridge = storage === 'fridge';
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      const allSelected = availableItems.length > 0 && availableItems.every(i => selectedItems.has(i.id));
+      const noneSelected = availableItems.every(i => !selectedItems.has(i.id));
+      selectAllRef.current.indeterminate = !allSelected && !noneSelected;
+    }
+  }, [selectedItems, availableItems]);
+
+  const toggleSelectAll = () => {
+    const allSelected = availableItems.length > 0 && availableItems.every(i => selectedItems.has(i.id));
+    if (allSelected) {
+      setSelectedItems(new Set());
+    } else {
+      setSelectedItems(new Set(availableItems.map(i => i.id)));
+    }
+  };
+
+  const toggleSelectItem = (id: string) => {
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const handleOpenForm = () => {
     if (!showForm) {
@@ -114,10 +142,22 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
         </button>
         <button
           className={`btn btn-sm text-white ${availableItems.length === 0 ? 'btn-disabled' : isFridge ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-700' : 'bg-cyan-600 hover:bg-cyan-700 border-cyan-700'}`}
-          onClick={() => { setShowTakeAll(!showTakeAll); setShowForm(false); setTakeAllConfirm(false); setTakeAllDone(''); setTakeAllError(''); setTakeAllRecBy(activeVolunteer); setTakeAllDate(todayISO()); }}
+          onClick={() => {
+            const opening = !showTakeAll;
+            setShowTakeAll(opening);
+            setShowForm(false);
+            setTakeAllConfirm(false);
+            setTakeAllDone('');
+            setTakeAllError('');
+            setTakeAllRecBy(activeVolunteer);
+            setTakeAllDate(todayISO());
+            if (opening) {
+              setSelectedItems(new Set(availableItems.map(i => i.id)));
+            }
+          }}
         >
           <CheckCheck size={16} />
-          {showTakeAll ? 'Close' : `Take All (${availableItems.length})`}
+          {showTakeAll ? 'Close' : `Batch Take (${availableItems.length})`}
         </button>
       </div>
 
@@ -126,24 +166,44 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
         <div className={`rounded-xl border-2 ${isFridge ? 'border-emerald-200 bg-emerald-50/50' : 'border-cyan-200 bg-cyan-50/50'}`}>
           <div className="p-4 space-y-3">
             <h3 className="font-bold text-sm flex items-center gap-2">
-              <CheckCheck size={16} /> ⚡ Quick Take All — {isFridge ? 'Fridge' : 'Freezer'}
+              <CheckCheck size={16} /> ⚡ Batch Take — {isFridge ? 'Fridge' : 'Freezer'}
             </h3>
             <div className="rounded-lg bg-white border border-base-300 p-3 text-sm">
-              <p className="font-medium mb-2">This will record <span className="text-lg font-bold text-emerald-700">{availableItems.length}</span> items as fully handed out:</p>
-              <div className="max-h-32 overflow-y-auto space-y-1">
+              <label className="flex items-center gap-2 pb-2 mb-2 border-b border-base-300 cursor-pointer select-none">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  className="checkbox checkbox-sm"
+                  checked={availableItems.length > 0 && availableItems.every(i => selectedItems.has(i.id))}
+                  onChange={toggleSelectAll}
+                />
+                <span className="font-medium">Select All</span>
+                <span className="ml-auto text-xs text-base-content/60">
+                  {selectedItems.size} of {availableItems.length} items selected
+                </span>
+              </label>
+              <div className="max-h-40 overflow-y-auto space-y-1">
                 {availableItems.map(i => (
-                  <div key={i.id} className="flex justify-between text-xs py-0.5 border-b border-base-200 last:border-0">
-                    <span className="flex items-center gap-1">
+                  <label key={i.id} className="flex items-center justify-between text-xs py-0.5 border-b border-base-200 last:border-0 cursor-pointer select-none">
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-xs"
+                        checked={selectedItems.has(i.id)}
+                        onChange={() => toggleSelectItem(i.id)}
+                      />
                       <span className="font-mono bg-base-200 px-1 rounded">{i.id}</span>
                       <span>{i.item}</span>
                     </span>
                     <span className="font-bold text-emerald-700">{i.qty_remaining} {i.unit}</span>
-                  </div>
+                  </label>
                 ))}
               </div>
               <div className="mt-2 pt-2 border-t border-base-300 flex justify-between font-bold text-sm">
-                <span>Total items:</span>
-                <span className="text-emerald-700">{availableItems.reduce((s, i) => s + i.qty_remaining, 0)} units across {availableItems.length} items</span>
+                <span>Selected:</span>
+                <span className="text-emerald-700">
+                  {availableItems.filter(i => selectedItems.has(i.id)).reduce((s, i) => s + i.qty_remaining, 0)} units across {selectedItems.size} items
+                </span>
               </div>
             </div>
 
@@ -181,9 +241,10 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
             ) : !takeAllConfirm ? (
               <button
                 className={`btn btn-sm w-full text-white ${isFridge ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-700' : 'bg-cyan-600 hover:bg-cyan-700 border-cyan-700'}`}
+                disabled={selectedItems.size === 0}
                 onClick={() => { setTakeAllConfirm(true); takeAllTimer.current = setTimeout(() => setTakeAllConfirm(false), 5000); }}
               >
-                <CheckCheck size={16} /> Take All {availableItems.length} Items
+                <CheckCheck size={16} /> Take {selectedItems.size} Items
               </button>
             ) : (
               <button
@@ -195,8 +256,11 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
                   clearTimeout(takeAllTimer.current);
                   setTakeAllError('');
                   try {
-                    const count = await onTakeAll(storage, takeAllBy.trim(), takeAllRecBy.trim(), takeAllDate);
-                    setTakeAllDone(`${count} items recorded as taken from ${isFridge ? 'Fridge' : 'Freezer'}!`);
+                    const selected = availableItems.filter(i => selectedItems.has(i.id));
+                    for (const item of selected) {
+                      onTake(item.id, item.qty_remaining, takeAllBy.trim(), takeAllRecBy.trim(), takeAllDate);
+                    }
+                    setTakeAllDone(`${selected.length} items recorded as taken from ${isFridge ? 'Fridge' : 'Freezer'}!`);
                     setTakeAllConfirm(false);
                   } catch (err: any) {
                     setTakeAllError(`Failed: ${err?.message || 'Unknown error'}`);
@@ -206,7 +270,7 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
                   }
                 }}
               >
-                {takeAllBusy ? '⏳ Processing...' : `⚠️ CONFIRM — Take All ${availableItems.length} Items Out`}
+                {takeAllBusy ? '⏳ Processing...' : `⚠️ CONFIRM — Take ${selectedItems.size} Items Out`}
               </button>
             )}
           </div>
