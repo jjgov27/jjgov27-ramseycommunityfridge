@@ -189,6 +189,36 @@ export async function loadInwards(): Promise<InwardItem[]> {
   });
 }
 
+// ========== BULK ADD INWARDS (for imports) ==========
+
+export async function bulkAddInwards(
+  items: Array<{
+    item: string; category: string; qty: number; unit: string;
+    donor: string; bestBefore: string; storage: StorageLocation;
+    enteredBy: string; date: string; unitValue: number;
+  }>
+): Promise<number> {
+  if (items.length === 0) return 0;
+  const ids = await getNextIdBatch(items.length);
+  const now = new Date();
+  const timeIn = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+  // Batch insert in groups of 10 rows per INSERT statement to reduce call count
+  const BATCH = 10;
+  for (let i = 0; i < items.length; i += BATCH) {
+    const chunk = items.slice(i, i + BATCH);
+    const values = chunk.map((it, j) => {
+      const idx = i + j;
+      return `('${esc(ids[idx])}', '${esc(it.item)}', '${esc(it.category)}', ${it.qty}, '${esc(it.unit)}', '${esc(it.date)}', '${esc(timeIn)}', '${esc(it.donor)}', '${esc(it.enteredBy)}', '${esc(it.bestBefore)}', '${esc(it.storage)}', ${it.unitValue})`;
+    }).join(', ');
+    await sqlExec(`
+      INSERT INTO cf_inwards (id, item, category, qty_in, unit, date_in, time_in, donor, entered_by, best_before, storage, unit_value)
+      VALUES ${values}
+    `);
+  }
+  return items.length;
+}
+
 // ========== MOVE ITEM ==========
 
 export async function moveInwardItem(id: string, newStorage: StorageLocation): Promise<void> {
@@ -304,6 +334,17 @@ export async function addCustomItem(name: string, category: string): Promise<voi
   const capName = capitalise(name.trim());
   const capCat = capitalise(category.trim());
   await sqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) VALUES ('${esc(capName)}', '${esc(capCat)}')`);
+}
+
+/** Batch-add multiple custom items in one INSERT (avoids rate limit) */
+export async function bulkAddCustomItems(items: Array<{ name: string; category: string }>): Promise<void> {
+  if (items.length === 0) return;
+  const BATCH = 20;
+  for (let i = 0; i < items.length; i += BATCH) {
+    const chunk = items.slice(i, i + BATCH);
+    const values = chunk.map(it => `('${esc(capitalise(it.name.trim()))}', '${esc(capitalise(it.category.trim()))}')`).join(', ');
+    await sqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) VALUES ${values}`);
+  }
 }
 
 export async function deleteCustomItem(id: number): Promise<void> {
@@ -822,15 +863,9 @@ export async function updateWastage(id: number, fields: {
 // ========== EXPORT ARCHIVE TO CSV ==========
 
 export function archiveToCSV(archive: ArchivedRecord[]): string {
-  const headers = ['ID', 'Item', 'Category', 'Qty In', 'Unit', 'Date In', 'Storage', 'Donor', 'Best Before', 'Value (£)', 'Total Value (£)', 'Total Taken', 'Total Wasted', 'Archived Date'];
-  const rows = archive.map(a => {
-    const uv = a.unit_value || 0;
-    const totalVal = uv * a.qty_in;
-    return [
-      a.id, a.item, a.category, a.qty_in, a.unit, a.date_in, a.storage, a.donor, a.best_before,
-      uv > 0 ? uv.toFixed(2) : '', totalVal > 0 ? totalVal.toFixed(2) : '',
-      a.total_taken, a.total_wasted, a.archived_date
-    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
-  });
+  const headers = ['ID', 'Item', 'Category', 'Qty In', 'Unit', 'Date In', 'Storage', 'Donor', 'Best Before', 'Total Taken', 'Total Wasted', 'Archived Date'];
+  const rows = archive.map(a => [
+    a.id, a.item, a.category, a.qty_in, a.unit, a.date_in, a.storage, a.donor, a.best_before, a.total_taken, a.total_wasted, a.archived_date
+  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
   return [headers.join(','), ...rows].join('\n');
 }

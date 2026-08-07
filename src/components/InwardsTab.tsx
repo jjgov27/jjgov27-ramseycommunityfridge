@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem, Volunteer, Donor } from '../types';
 import { Plus, Trash2, ChevronUp, ChevronDown, Snowflake, ThermometerSun, ArrowRightLeft, Pencil, Check, X } from 'lucide-react';
+import { ImportInwards } from './ImportInwards';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
 
@@ -121,12 +122,18 @@ interface InwardsTabProps {
   onDelete: (id: string) => void;
   onMove: (id: string, newStorage: StorageLocation) => void;
   onEdit: (id: string, fields: { item?: string; category?: string; qty_in?: number; donor?: string; best_before?: string; entered_by?: string }) => void;
+  onBulkAdd: (items: Array<{
+    item: string; category: string; qty: number; unit: string;
+    donor: string; bestBefore: string; storage: StorageLocation;
+    enteredBy: string; date: string; unitValue: number;
+  }>) => Promise<number>;
   activeVolunteer: string;
   volunteers: Volunteer[];
   donors: Donor[];
+  onRefreshItems?: () => void;  // called after import auto-creates new items
 }
 
-export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, onEdit, activeVolunteer, volunteers, donors }) => {
+export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, onEdit, onBulkAdd, activeVolunteer, volunteers, donors, onRefreshItems }) => {
   const [showForm, setShowForm] = useState(false);
   const [item, setItem] = useState('');
   const [category, setCategory] = useState('');
@@ -205,6 +212,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
 
   const handleSubmit = () => {
     if (!item.trim() || qty <= 0) return;
+    if (!bestBefore) { alert('Please select a Best Before / Sell By date'); return; }
     onAdd(item.trim(), category || 'Other', qty, unit, donor.trim(), bestBefore, storage, enteredBy.trim(), dateIn, unitValue || 0);
     setItem('');
     setCategory('');
@@ -394,6 +402,9 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
           </div>
         </div>
       )}
+
+      {/* Import buttons */}
+      <ImportInwards onBulkAdd={onBulkAdd} activeVolunteer={activeVolunteer} isFridge={isFridge} donors={donors} itemNames={itemNames} itemCategories={allItems} onAddItem={() => { if (onRefreshItems) onRefreshItems(); }} />
 
       {/* Filters */}
       <div className="flex gap-2">
