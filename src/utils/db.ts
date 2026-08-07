@@ -1,7 +1,24 @@
-import { sqlExec, sqlQuery } from "./sql-adapter";
+import { sqlExec, sqlQuery } from './sql-adapter';
 import { InwardItem, OutwardEntry, WastageEntry, CustomItem, StorageLocation, ArchivedRecord, Volunteer, Donor } from '../types';
 
 const esc = (s: string) => s.replace(/'/g, "''");
+
+// Retry wrapper for sqlExec to handle version conflicts
+async function safeSqlExec(sql: string, retries = 3): Promise<void> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      await sqlExec(sql);
+      return;
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if (msg.includes('Version conflict') && attempt < retries - 1) {
+        await new Promise(r => setTimeout(r, 200 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 
 // ========== INIT (cached singleton — prevents double-init from React strict mode) ==========
 
@@ -14,104 +31,77 @@ export async function initDB(): Promise<void> {
 }
 
 async function _doInit(): Promise<void> {
-  // All columns included in CREATE TABLE — no ALTER TABLE migrations needed
-  await Promise.all([
-    sqlExec(`
-      CREATE TABLE IF NOT EXISTS cf_inwards (
-        id TEXT PRIMARY KEY,
-        item TEXT NOT NULL,
-        category TEXT NOT NULL,
-        qty_in INTEGER NOT NULL,
-        unit TEXT NOT NULL DEFAULT 'items',
-        date_in TEXT NOT NULL,
-        time_in TEXT NOT NULL,
-        donor TEXT NOT NULL DEFAULT '',
-        entered_by TEXT NOT NULL DEFAULT '',
-        best_before TEXT NOT NULL DEFAULT '',
-        storage TEXT NOT NULL DEFAULT 'fridge',
-        moved_to TEXT NOT NULL DEFAULT '',
-        moved_date TEXT NOT NULL DEFAULT '',
+  // Check if DB is already set up by looking for our main table
+  // This avoids 11+ mutation calls on every app load
+  let needsInit = false;
+  try {
+    const check = await sqlQuery(`SELECT name FROM sqlite_master WHERE type='table' AND name='cf_inwards'`);
+    needsInit = !check || check.length === 0;
+  } catch (_) {
+    needsInit = true;
+  }
+
+  if (needsInit) {
+    // Each CREATE TABLE must be a separate sqlExec call (single-statement limit)
+    // Run sequentially to avoid version conflicts
+    const tables = [
+      `CREATE TABLE IF NOT EXISTS cf_inwards (
+        id TEXT PRIMARY KEY, item TEXT NOT NULL, category TEXT NOT NULL,
+        qty_in INTEGER NOT NULL, unit TEXT NOT NULL DEFAULT 'items',
+        date_in TEXT NOT NULL, time_in TEXT NOT NULL,
+        donor TEXT NOT NULL DEFAULT '', entered_by TEXT NOT NULL DEFAULT '',
+        best_before TEXT NOT NULL DEFAULT '', storage TEXT NOT NULL DEFAULT 'fridge',
+        moved_to TEXT NOT NULL DEFAULT '', moved_date TEXT NOT NULL DEFAULT '',
         unit_value REAL NOT NULL DEFAULT 0
-      )
-    `),
-    sqlExec(`
-      CREATE TABLE IF NOT EXISTS cf_outwards (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        inward_id TEXT NOT NULL,
-        qty_taken INTEGER NOT NULL DEFAULT 1,
-        date_taken TEXT NOT NULL,
-        time_taken TEXT NOT NULL,
-        taken_by TEXT NOT NULL DEFAULT '',
-        recorded_by TEXT NOT NULL DEFAULT '',
-        source TEXT NOT NULL DEFAULT 'manual',
+      )`,
+      `CREATE TABLE IF NOT EXISTS cf_outwards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, inward_id TEXT NOT NULL,
+        qty_taken INTEGER NOT NULL DEFAULT 1, date_taken TEXT NOT NULL,
+        time_taken TEXT NOT NULL, taken_by TEXT NOT NULL DEFAULT '',
+        recorded_by TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'manual',
         FOREIGN KEY (inward_id) REFERENCES cf_inwards(id)
-      )
-    `),
-    sqlExec(`
-      CREATE TABLE IF NOT EXISTS cf_wastage (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        inward_id TEXT NOT NULL,
-        qty_wasted INTEGER NOT NULL DEFAULT 1,
-        reason TEXT NOT NULL DEFAULT 'Unknown',
-        date_wasted TEXT NOT NULL,
-        reported_by TEXT NOT NULL DEFAULT '',
-        notes TEXT NOT NULL DEFAULT '',
-        weight_kg REAL NOT NULL DEFAULT 0,
+      )`,
+      `CREATE TABLE IF NOT EXISTS cf_wastage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, inward_id TEXT NOT NULL,
+        qty_wasted INTEGER NOT NULL DEFAULT 1, reason TEXT NOT NULL DEFAULT 'Unknown',
+        date_wasted TEXT NOT NULL, reported_by TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '', weight_kg REAL NOT NULL DEFAULT 0,
         FOREIGN KEY (inward_id) REFERENCES cf_inwards(id)
-      )
-    `),
-    sqlExec(`
-      CREATE TABLE IF NOT EXISTS cf_counter (
-        key TEXT PRIMARY KEY,
-        value INTEGER NOT NULL DEFAULT 0
-      )
-    `),
-    sqlExec(`
-      CREATE TABLE IF NOT EXISTS cf_custom_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
+      )`,
+      `CREATE TABLE IF NOT EXISTS cf_counter (
+        key TEXT PRIMARY KEY, value INTEGER NOT NULL DEFAULT 0
+      )`,
+      `CREATE TABLE IF NOT EXISTS cf_custom_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
         category TEXT NOT NULL DEFAULT 'Other'
-      )
-    `),
-    sqlExec(`
-      CREATE TABLE IF NOT EXISTS cf_volunteers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        initials TEXT NOT NULL UNIQUE
-      )
-    `),
-    sqlExec(`
-      CREATE TABLE IF NOT EXISTS cf_donors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE
-      )
-    `),
-    sqlExec(`
-      CREATE TABLE IF NOT EXISTS cf_archive (
-        id TEXT PRIMARY KEY,
-        item TEXT NOT NULL,
-        category TEXT NOT NULL,
-        qty_in INTEGER NOT NULL,
-        unit TEXT NOT NULL DEFAULT 'items',
-        date_in TEXT NOT NULL,
-        storage TEXT NOT NULL DEFAULT 'fridge',
-        donor TEXT NOT NULL DEFAULT '',
-        best_before TEXT NOT NULL DEFAULT '',
-        total_taken INTEGER NOT NULL DEFAULT 0,
-        total_wasted INTEGER NOT NULL DEFAULT 0,
-        archived_date TEXT NOT NULL,
-        outwards_json TEXT NOT NULL DEFAULT '[]',
+      )`,
+      `CREATE TABLE IF NOT EXISTS cf_volunteers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, initials TEXT NOT NULL UNIQUE
+      )`,
+      `CREATE TABLE IF NOT EXISTS cf_donors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE
+      )`,
+      `CREATE TABLE IF NOT EXISTS cf_archive (
+        id TEXT PRIMARY KEY, item TEXT NOT NULL, category TEXT NOT NULL,
+        qty_in INTEGER NOT NULL, unit TEXT NOT NULL DEFAULT 'items',
+        date_in TEXT NOT NULL, storage TEXT NOT NULL DEFAULT 'fridge',
+        donor TEXT NOT NULL DEFAULT '', best_before TEXT NOT NULL DEFAULT '',
+        total_taken INTEGER NOT NULL DEFAULT 0, total_wasted INTEGER NOT NULL DEFAULT 0,
+        archived_date TEXT NOT NULL, outwards_json TEXT NOT NULL DEFAULT '[]',
         wastage_json TEXT NOT NULL DEFAULT '[]'
-      )
-    `),
-  ]);
+      )`,
+    ];
+    for (const sql of tables) {
+      await safeSqlExec(sql);
+    }
 
-  // Seed counter
-  await sqlExec(`INSERT OR IGNORE INTO cf_counter (key, value) VALUES ('next_id', 1)`);
+    // Seed counter
+    await safeSqlExec(`INSERT OR IGNORE INTO cf_counter (key, value) VALUES ('next_id', 1)`);
 
-  // Migrations — add unit_value column if missing (existing databases)
-  try { await sqlExec(`ALTER TABLE cf_inwards ADD COLUMN unit_value REAL NOT NULL DEFAULT 0`); } catch (_) { /* already exists */ }
-  try { await sqlExec(`ALTER TABLE cf_archive ADD COLUMN unit_value REAL NOT NULL DEFAULT 0`); } catch (_) { /* already exists */ }
+    // Migrations — add unit_value column if missing (existing databases)
+    try { await safeSqlExec(`ALTER TABLE cf_inwards ADD COLUMN unit_value REAL NOT NULL DEFAULT 0`); } catch (_) { /* already exists */ }
+    try { await safeSqlExec(`ALTER TABLE cf_archive ADD COLUMN unit_value REAL NOT NULL DEFAULT 0`); } catch (_) { /* already exists */ }
+  }
 }
 
 // ========== ID GENERATION ==========
@@ -119,7 +109,7 @@ async function _doInit(): Promise<void> {
 async function getNextIdBatch(count: number): Promise<string[]> {
   const rows = await sqlQuery(`SELECT value FROM cf_counter WHERE key = 'next_id'`);
   const start = (rows[0]?.value as number) || 1;
-  await sqlExec(`UPDATE cf_counter SET value = ${start + count} WHERE key = 'next_id'`);
+  await safeSqlExec(`UPDATE cf_counter SET value = ${start + count} WHERE key = 'next_id'`);
   return Array.from({ length: count }, (_, i) => `CF-${String(start + i).padStart(3, '0')}`);
 }
 
@@ -140,7 +130,7 @@ export async function addInward(
   const dateIn = overrideDate || now.toLocaleDateString('en-GB');
   const timeIn = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-  await sqlExec(`
+  await safeSqlExec(`
     INSERT INTO cf_inwards (id, item, category, qty_in, unit, date_in, time_in, donor, entered_by, best_before, storage, unit_value)
     VALUES ('${esc(id)}', '${esc(item)}', '${esc(category)}', ${qtyIn}, '${esc(unit)}', '${esc(dateIn)}', '${esc(timeIn)}', '${esc(donor)}', '${esc(enteredBy)}', '${esc(bestBefore)}', '${esc(storage)}', ${unitValue})
   `);
@@ -211,10 +201,13 @@ export async function bulkAddInwards(
       const idx = i + j;
       return `('${esc(ids[idx])}', '${esc(it.item)}', '${esc(it.category)}', ${it.qty}, '${esc(it.unit)}', '${esc(it.date)}', '${esc(timeIn)}', '${esc(it.donor)}', '${esc(it.enteredBy)}', '${esc(it.bestBefore)}', '${esc(it.storage)}', ${it.unitValue})`;
     }).join(', ');
-    await sqlExec(`
+    await safeSqlExec(`
       INSERT INTO cf_inwards (id, item, category, qty_in, unit, date_in, time_in, donor, entered_by, best_before, storage, unit_value)
       VALUES ${values}
     `);
+    if (i + BATCH < items.length) {
+      await new Promise(r => setTimeout(r, 300));
+    }
   }
   return items.length;
 }
@@ -224,7 +217,7 @@ export async function bulkAddInwards(
 export async function moveInwardItem(id: string, newStorage: StorageLocation): Promise<void> {
   const now = new Date();
   const moveDate = now.toLocaleDateString('en-GB');
-  await sqlExec(`
+  await safeSqlExec(`
     UPDATE cf_inwards SET moved_to = '${esc(newStorage)}', moved_date = '${esc(moveDate)}', storage = '${esc(newStorage)}' WHERE id = '${esc(id)}'
   `);
 }
@@ -235,7 +228,7 @@ export async function addOutward(inwardId: string, qtyTaken: number, takenBy: st
   const now = new Date();
   const dateTaken = overrideDate || now.toLocaleDateString('en-GB');
   const timeTaken = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  await sqlExec(`
+  await safeSqlExec(`
     INSERT INTO cf_outwards (inward_id, qty_taken, date_taken, time_taken, taken_by, recorded_by, source)
     VALUES ('${esc(inwardId)}', ${qtyTaken}, '${esc(dateTaken)}', '${esc(timeTaken)}', '${esc(takenBy)}', '${esc(recordedBy)}', '${esc(source)}')
   `);
@@ -269,7 +262,7 @@ export async function loadOutwards(): Promise<OutwardEntry[]> {
 export async function addWastage(inwardId: string, qtyWasted: number, reason: string, reportedBy: string, notes: string, overrideDate?: string, weightKg: number = 0): Promise<void> {
   const now = new Date();
   const dateWasted = overrideDate || now.toLocaleDateString('en-GB');
-  await sqlExec(`
+  await safeSqlExec(`
     INSERT INTO cf_wastage (inward_id, qty_wasted, reason, date_wasted, reported_by, notes, weight_kg)
     VALUES ('${esc(inwardId)}', ${qtyWasted}, '${esc(reason)}', '${esc(dateWasted)}', '${esc(reportedBy)}', '${esc(notes)}', ${weightKg || 0})
   `);
@@ -301,20 +294,17 @@ export async function loadWastage(): Promise<WastageEntry[]> {
 // ========== DELETE OPERATIONS ==========
 
 export async function deleteOutward(id: number): Promise<void> {
-  await sqlExec(`DELETE FROM cf_outwards WHERE id = ${id}`);
+  await safeSqlExec(`DELETE FROM cf_outwards WHERE id = ${id}`);
 }
 
 export async function deleteWastage(id: number): Promise<void> {
-  await sqlExec(`DELETE FROM cf_wastage WHERE id = ${id}`);
+  await safeSqlExec(`DELETE FROM cf_wastage WHERE id = ${id}`);
 }
 
 export async function deleteInward(id: string): Promise<void> {
-  // Batch deletes in parallel
-  await Promise.all([
-    sqlExec(`DELETE FROM cf_outwards WHERE inward_id = '${esc(id)}'`),
-    sqlExec(`DELETE FROM cf_wastage WHERE inward_id = '${esc(id)}'`),
-  ]);
-  await sqlExec(`DELETE FROM cf_inwards WHERE id = '${esc(id)}'`);
+  await safeSqlExec(`DELETE FROM cf_outwards WHERE inward_id = '${esc(id)}'`);
+  await safeSqlExec(`DELETE FROM cf_wastage WHERE inward_id = '${esc(id)}'`);
+  await safeSqlExec(`DELETE FROM cf_inwards WHERE id = '${esc(id)}'`);
 }
 
 // ========== CUSTOM ITEMS ==========
@@ -333,7 +323,7 @@ const capitalise = (s: string) => s.replace(/\b\w/g, c => c.toUpperCase());
 export async function addCustomItem(name: string, category: string): Promise<void> {
   const capName = capitalise(name.trim());
   const capCat = capitalise(category.trim());
-  await sqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) VALUES ('${esc(capName)}', '${esc(capCat)}')`);
+  await safeSqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) VALUES ('${esc(capName)}', '${esc(capCat)}')`);
 }
 
 /** Batch-add multiple custom items in one INSERT (avoids rate limit) */
@@ -343,12 +333,19 @@ export async function bulkAddCustomItems(items: Array<{ name: string; category: 
   for (let i = 0; i < items.length; i += BATCH) {
     const chunk = items.slice(i, i + BATCH);
     const values = chunk.map(it => `('${esc(capitalise(it.name.trim()))}', '${esc(capitalise(it.category.trim()))}')`).join(', ');
-    await sqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) VALUES ${values}`);
+    await safeSqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) VALUES ${values}`);
   }
 }
 
+export async function updateCustomItemCategory(name: string, category: string): Promise<void> {
+  const esc = (s: string) => s.replace(/'/g, "''");
+  const capName = name.charAt(0).toUpperCase() + name.slice(1);
+  const capCat = category.charAt(0).toUpperCase() + category.slice(1);
+  await safeSqlExec(`UPDATE cf_custom_items SET category = '${esc(capCat)}' WHERE name = '${esc(capName)}'`);
+}
+
 export async function deleteCustomItem(id: number): Promise<void> {
-  await sqlExec(`DELETE FROM cf_custom_items WHERE id = ${id}`);
+  await safeSqlExec(`DELETE FROM cf_custom_items WHERE id = ${id}`);
 }
 
 // Import custom items - BATCHED (1 call to delete + 1 call per 20 items)
@@ -369,14 +366,14 @@ export async function importCustomItems(csv: string): Promise<number> {
 
   if (items.length === 0) return 0;
 
-  await sqlExec(`DELETE FROM cf_custom_items`);
+  await safeSqlExec(`DELETE FROM cf_custom_items`);
 
   // Batch inserts - 20 items per call using INSERT SELECT UNION ALL
   const BATCH = 20;
   for (let i = 0; i < items.length; i += BATCH) {
     const chunk = items.slice(i, i + BATCH);
     const values = chunk.map(it => `SELECT '${esc(it.name)}', '${esc(it.category)}'`).join(' UNION ALL ');
-    await sqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) ${values}`);
+    await safeSqlExec(`INSERT OR IGNORE INTO cf_custom_items (name, category) ${values}`);
   }
 
   return items.length;
@@ -397,11 +394,11 @@ export async function addVolunteer(name: string, initials: string): Promise<void
   const capName = capitalise(name.trim());
   const capInit = initials.trim().toUpperCase();
   if (!capName || !capInit) return;
-  await sqlExec(`INSERT OR IGNORE INTO cf_volunteers (name, initials) VALUES ('${esc(capName)}', '${esc(capInit)}')`);
+  await safeSqlExec(`INSERT OR IGNORE INTO cf_volunteers (name, initials) VALUES ('${esc(capName)}', '${esc(capInit)}')`);
 }
 
 export async function deleteVolunteer(id: number): Promise<void> {
-  await sqlExec(`DELETE FROM cf_volunteers WHERE id = ${id}`);
+  await safeSqlExec(`DELETE FROM cf_volunteers WHERE id = ${id}`);
 }
 
 export async function importVolunteers(csv: string): Promise<number> {
@@ -424,13 +421,13 @@ export async function importVolunteers(csv: string): Promise<number> {
 
   if (items.length === 0) return 0;
 
-  await sqlExec(`DELETE FROM cf_volunteers`);
+  await safeSqlExec(`DELETE FROM cf_volunteers`);
 
   const BATCH = 20;
   for (let i = 0; i < items.length; i += BATCH) {
     const chunk = items.slice(i, i + BATCH);
     const values = chunk.map(it => `('${esc(it.name)}', '${esc(it.initials)}')`).join(',\n');
-    await sqlExec(`INSERT OR IGNORE INTO cf_volunteers (name, initials) VALUES ${values}`);
+    await safeSqlExec(`INSERT OR IGNORE INTO cf_volunteers (name, initials) VALUES ${values}`);
   }
 
   return items.length;
@@ -449,11 +446,11 @@ export async function loadDonors(): Promise<Donor[]> {
 export async function addDonor(name: string): Promise<void> {
   const capName = capitalise(name.trim());
   if (!capName) return;
-  await sqlExec(`INSERT OR IGNORE INTO cf_donors (name) VALUES ('${esc(capName)}')`);
+  await safeSqlExec(`INSERT OR IGNORE INTO cf_donors (name) VALUES ('${esc(capName)}')`);
 }
 
 export async function deleteDonor(id: number): Promise<void> {
-  await sqlExec(`DELETE FROM cf_donors WHERE id = ${id}`);
+  await safeSqlExec(`DELETE FROM cf_donors WHERE id = ${id}`);
 }
 
 export async function importDonors(csv: string): Promise<number> {
@@ -473,13 +470,13 @@ export async function importDonors(csv: string): Promise<number> {
 
   if (items.length === 0) return 0;
 
-  await sqlExec(`DELETE FROM cf_donors`);
+  await safeSqlExec(`DELETE FROM cf_donors`);
 
   const BATCH = 20;
   for (let i = 0; i < items.length; i += BATCH) {
     const chunk = items.slice(i, i + BATCH);
     const values = chunk.map(n => `('${esc(n)}')`).join(',\n');
-    await sqlExec(`INSERT OR IGNORE INTO cf_donors (name) VALUES ${values}`);
+    await safeSqlExec(`INSERT OR IGNORE INTO cf_donors (name) VALUES ${values}`);
   }
 
   return items.length;
@@ -502,7 +499,7 @@ export async function bulkInwardsToOutwards(recordedBy: string = ''): Promise<nu
     const values = chunk.map(item =>
       `('${esc(item.id)}', ${item.qty_remaining}, '${esc(dateTaken)}', '${esc(timeTaken)}', 'Bulk Export', '${esc(recordedBy)}', 'bulk')`
     ).join(',\n');
-    await sqlExec(`
+    await safeSqlExec(`
       INSERT INTO cf_outwards (inward_id, qty_taken, date_taken, time_taken, taken_by, recorded_by, source)
       VALUES ${values}
     `);
@@ -528,7 +525,7 @@ export async function quickTakeAllAvailable(
   const timeTaken = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
   for (const item of available) {
-    await sqlExec(`
+    await safeSqlExec(`
       INSERT INTO cf_outwards (inward_id, qty_taken, date_taken, time_taken, taken_by, recorded_by, source)
       VALUES ('${esc(item.id)}', ${item.qty_remaining}, '${esc(dateTaken)}', '${esc(timeTaken)}', '${esc(takenBy)}', '${esc(recordedBy)}', 'manual')
     `);
@@ -555,11 +552,9 @@ export async function archiveCompletedItems(): Promise<number> {
   const now = new Date().toLocaleDateString('en-GB');
   const ids = rows.map(r => `'${esc(r.id as string)}'`).join(',');
 
-  // Fetch all related outwards and wastage in 2 bulk queries instead of 2 per item
-  const [allOut, allWast] = await Promise.all([
-    sqlQuery(`SELECT * FROM cf_outwards WHERE inward_id IN (${ids})`),
-    sqlQuery(`SELECT * FROM cf_wastage WHERE inward_id IN (${ids})`),
-  ]);
+  // Fetch all related outwards and wastage sequentially
+  const allOut = await sqlQuery(`SELECT * FROM cf_outwards WHERE inward_id IN (${ids})`);
+  const allWast = await sqlQuery(`SELECT * FROM cf_wastage WHERE inward_id IN (${ids})`);
 
   // Group by inward_id
   const outByItem: Record<string, unknown[]> = {};
@@ -573,18 +568,16 @@ export async function archiveCompletedItems(): Promise<number> {
     const outJson = JSON.stringify(outByItem[id] || []).replace(/'/g, "''");
     const wastJson = JSON.stringify(wastByItem[id] || []).replace(/'/g, "''");
 
-    await sqlExec(`
+    await safeSqlExec(`
       INSERT OR REPLACE INTO cf_archive (id, item, category, qty_in, unit, date_in, storage, donor, best_before, total_taken, total_wasted, archived_date, outwards_json, wastage_json, unit_value)
       VALUES ('${esc(id)}', '${esc(r.item as string)}', '${esc(r.category as string)}', ${r.qty_in}, '${esc(r.unit as string)}', '${esc(r.date_in as string)}', '${esc((r.storage as string) || 'fridge')}', '${esc(r.donor as string)}', '${esc(r.best_before as string)}', ${r.total_taken}, ${r.total_wasted}, '${esc(now)}', '${outJson}', '${wastJson}', ${(r.unit_value as number) || 0})
     `);
   }
 
-  // Bulk delete from live tables (3 calls instead of 3 per item)
-  await Promise.all([
-    sqlExec(`DELETE FROM cf_outwards WHERE inward_id IN (${ids})`),
-    sqlExec(`DELETE FROM cf_wastage WHERE inward_id IN (${ids})`),
-  ]);
-  await sqlExec(`DELETE FROM cf_inwards WHERE id IN (${ids})`);
+  // Bulk delete from live tables — sequential to avoid rate limit
+  await safeSqlExec(`DELETE FROM cf_outwards WHERE inward_id IN (${ids})`);
+  await safeSqlExec(`DELETE FROM cf_wastage WHERE inward_id IN (${ids})`);
+  await safeSqlExec(`DELETE FROM cf_inwards WHERE id IN (${ids})`);
 
   return rows.length;
 }
@@ -611,35 +604,31 @@ export async function loadArchive(): Promise<ArchivedRecord[]> {
 }
 
 export async function deleteArchiveItem(id: string): Promise<void> {
-  await sqlExec(`DELETE FROM cf_archive WHERE id = '${esc(id)}'`);
+  await safeSqlExec(`DELETE FROM cf_archive WHERE id = '${esc(id)}'`);
 }
 
 // ========== CLEAR ALL (TEST MODE) ==========
 
 export async function clearAllData(): Promise<void> {
-  await Promise.all([
-    sqlExec(`DELETE FROM cf_outwards`),
-    sqlExec(`DELETE FROM cf_wastage`),
-    sqlExec(`DELETE FROM cf_inwards`),
-    sqlExec(`UPDATE cf_counter SET value = 1 WHERE key = 'next_id'`),
-  ]);
+  await safeSqlExec(`DELETE FROM cf_outwards`);
+  await safeSqlExec(`DELETE FROM cf_wastage`);
+  await safeSqlExec(`DELETE FROM cf_inwards`);
+  await safeSqlExec(`UPDATE cf_counter SET value = 1 WHERE key = 'next_id'`);
 }
 
 export async function clearArchive(): Promise<void> {
-  await sqlExec(`DELETE FROM cf_archive`);
+  await safeSqlExec(`DELETE FROM cf_archive`);
 }
 
 export async function clearEverything(): Promise<void> {
-  await Promise.all([
-    sqlExec(`DELETE FROM cf_outwards`),
-    sqlExec(`DELETE FROM cf_wastage`),
-    sqlExec(`DELETE FROM cf_inwards`),
-    sqlExec(`UPDATE cf_counter SET value = 1 WHERE key = 'next_id'`),
-    sqlExec(`DELETE FROM cf_archive`),
-    sqlExec(`DELETE FROM cf_custom_items`),
-    sqlExec(`DELETE FROM cf_volunteers`),
-    sqlExec(`DELETE FROM cf_donors`),
-  ]);
+  await safeSqlExec(`DELETE FROM cf_outwards`);
+  await safeSqlExec(`DELETE FROM cf_wastage`);
+  await safeSqlExec(`DELETE FROM cf_inwards`);
+  await safeSqlExec(`UPDATE cf_counter SET value = 1 WHERE key = 'next_id'`);
+  await safeSqlExec(`DELETE FROM cf_archive`);
+  await safeSqlExec(`DELETE FROM cf_custom_items`);
+  await safeSqlExec(`DELETE FROM cf_volunteers`);
+  await safeSqlExec(`DELETE FROM cf_donors`);
 }
 
 // ========== IMPORT FROM CSV (BATCHED) ==========
@@ -702,7 +691,7 @@ export async function importInwardsFromCSV(csvText: string): Promise<number> {
       return `('${esc(id)}', '${esc(p.item)}', '${esc(p.category)}', ${p.qty}, '${esc(p.unit)}', '${esc(p.dateIn)}', '${esc(p.timeIn)}', '${esc(p.donor)}', '${esc(p.enteredBy)}', '${esc(p.bb)}', '${esc(p.stor)}', ${(p as Record<string,unknown>).unitValue || 0})`;
     }).join(',\n');
 
-    await sqlExec(`
+    await safeSqlExec(`
       INSERT OR REPLACE INTO cf_inwards (id, item, category, qty_in, unit, date_in, time_in, donor, entered_by, best_before, storage, unit_value)
       VALUES ${values}
     `);
@@ -751,7 +740,7 @@ export async function importOutwardsFromCSV(csvText: string): Promise<number> {
       `('${esc(p.inwardId)}', ${p.qty}, '${esc(p.dateTaken)}', '${esc(p.timeTaken)}', '${esc(p.takenBy)}', '${esc(p.recordedBy)}', 'import')`
     ).join(',\n');
 
-    await sqlExec(`
+    await safeSqlExec(`
       INSERT INTO cf_outwards (inward_id, qty_taken, date_taken, time_taken, taken_by, recorded_by, source)
       VALUES ${values}
     `);
@@ -799,7 +788,7 @@ export async function importWastageFromCSV(csvText: string): Promise<number> {
       `('${esc(p.inwardId)}', ${p.qty}, '${esc(p.reason)}', '${esc(p.dateWasted)}', '${esc(p.reportedBy)}', '${esc(p.notes)}')`
     ).join(',\n');
 
-    await sqlExec(`
+    await safeSqlExec(`
       INSERT INTO cf_wastage (inward_id, qty_wasted, reason, date_wasted, reported_by, notes)
       VALUES ${values}
     `);
@@ -828,7 +817,7 @@ export async function updateInward(id: string, fields: {
   if (fields.entered_by !== undefined) sets.push(`entered_by = ${escVal(fields.entered_by)}`);
   if (fields.unit_value !== undefined) sets.push(`unit_value = ${fields.unit_value}`);
   if (sets.length === 0) return;
-  await sqlExec(`UPDATE cf_inwards SET ${sets.join(', ')} WHERE id = ${escVal(id)}`);
+  await safeSqlExec(`UPDATE cf_inwards SET ${sets.join(', ')} WHERE id = ${escVal(id)}`);
 }
 
 export async function updateOutward(id: number, fields: {
@@ -842,7 +831,7 @@ export async function updateOutward(id: number, fields: {
   if (fields.taken_by !== undefined) sets.push(`taken_by = ${escVal(fields.taken_by)}`);
   if (fields.recorded_by !== undefined) sets.push(`recorded_by = ${escVal(fields.recorded_by)}`);
   if (sets.length === 0) return;
-  await sqlExec(`UPDATE cf_outwards SET ${sets.join(', ')} WHERE id = ${id}`);
+  await safeSqlExec(`UPDATE cf_outwards SET ${sets.join(', ')} WHERE id = ${id}`);
 }
 
 export async function updateWastage(id: number, fields: {
@@ -857,15 +846,21 @@ export async function updateWastage(id: number, fields: {
   if (fields.weight_kg !== undefined) sets.push(`weight_kg = ${fields.weight_kg}`);
   if (fields.notes !== undefined) sets.push(`notes = ${escVal(fields.notes)}`);
   if (sets.length === 0) return;
-  await sqlExec(`UPDATE cf_wastage SET ${sets.join(', ')} WHERE id = ${id}`);
+  await safeSqlExec(`UPDATE cf_wastage SET ${sets.join(', ')} WHERE id = ${id}`);
 }
 
 // ========== EXPORT ARCHIVE TO CSV ==========
 
 export function archiveToCSV(archive: ArchivedRecord[]): string {
-  const headers = ['ID', 'Item', 'Category', 'Qty In', 'Unit', 'Date In', 'Storage', 'Donor', 'Best Before', 'Total Taken', 'Total Wasted', 'Archived Date'];
-  const rows = archive.map(a => [
-    a.id, a.item, a.category, a.qty_in, a.unit, a.date_in, a.storage, a.donor, a.best_before, a.total_taken, a.total_wasted, a.archived_date
-  ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+  const headers = ['ID', 'Item', 'Category', 'Qty In', 'Unit', 'Date In', 'Storage', 'Donor', 'Best Before', 'Value (£)', 'Total Value (£)', 'Total Taken', 'Total Wasted', 'Archived Date'];
+  const rows = archive.map(a => {
+    const uv = a.unit_value || 0;
+    const totalVal = uv * a.qty_in;
+    return [
+      a.id, a.item, a.category, a.qty_in, a.unit, a.date_in, a.storage, a.donor, a.best_before,
+      uv > 0 ? uv.toFixed(2) : '', totalVal > 0 ? totalVal.toFixed(2) : '',
+      a.total_taken, a.total_wasted, a.archived_date
+    ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(',');
+  });
   return [headers.join(','), ...rows].join('\n');
 }

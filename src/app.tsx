@@ -9,7 +9,7 @@ import {
   clearAllData, clearArchive, clearEverything, importInwardsFromCSV, importOutwardsFromCSV, importWastageFromCSV, importCustomItems,
   loadVolunteers, addVolunteer, deleteVolunteer, importVolunteers, bulkInwardsToOutwards,
   loadDonors, addDonor, deleteDonor, importDonors, moveInwardItem, quickTakeAllAvailable,
-  updateInward, updateOutward
+  updateInward, updateOutward, bulkAddInwards, updateCustomItemCategory
 } from './utils/db';
 import { Dashboard } from './components/Dashboard';
 import { InwardsTab } from './components/InwardsTab';
@@ -19,6 +19,25 @@ import { ItemsTab } from './components/ItemsTab';
 import { ReportsTab } from './components/ReportsTab';
 import { HistoryTab } from './components/HistoryTab';
 import { AdminTab } from './components/AdminTab';
+
+// Module-level first-load cache — survives React strict mode remounts
+let _firstLoadPromise: Promise<{inv: any; out: any; wst: any; ci: any; arch: any; vols: any; dnrs: any}> | null = null;
+function firstLoad() {
+  if (!_firstLoadPromise) {
+    _firstLoadPromise = initDB().then(async () => {
+      // Sequential to avoid GCS rate limit (even reads count as mutations on db.bin)
+      const inv = await loadInwards();
+      const out = await loadOutwards();
+      const wst = await loadWastage();
+      const ci = await loadCustomItems();
+      const arch = await loadArchive();
+      const vols = await loadVolunteers();
+      const dnrs = await loadDonors();
+      return { inv, out, wst, ci, arch, vols, dnrs };
+    });
+  }
+  return _firstLoadPromise;
+}
 
 const TABS: { id: TabName; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: 'Home', icon: <LayoutDashboard size={16} /> },
@@ -44,6 +63,7 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [archiveMsg, setArchiveMsg] = useState<string | null>(null);
+  const [actionInProgress, setActionInProgress] = useState(false);
 
   // Active volunteer session — persisted to localStorage
   const [activeVolunteer, setActiveVolunteer] = useState<string>(() => {
@@ -55,143 +75,208 @@ const App: React.FC = () => {
   }, [activeVolunteer]);
 
   const refresh = useCallback(async () => {
-    const [inv, out, wst, ci, arch, vols, dnrs] = await Promise.all([
-      loadInwards(),
-      loadOutwards(),
-      loadWastage(),
-      loadCustomItems(),
-      loadArchive(),
-      loadVolunteers(),
-      loadDonors(),
-    ]);
-    setInwards(inv);
-    setOutwards(out);
-    setWastage(wst);
-    setCustomItems(ci);
-    setArchive(arch);
-    setVolunteers(vols);
-    setDonors(dnrs);
+    // Sequential to avoid GCS rate limit
+    const inv = await loadInwards(); setInwards(inv);
+    const out = await loadOutwards(); setOutwards(out);
+    const wst = await loadWastage(); setWastage(wst);
+    const ci = await loadCustomItems(); setCustomItems(ci);
+    const arch = await loadArchive(); setArchive(arch);
+    const vols = await loadVolunteers(); setVolunteers(vols);
+    const dnrs = await loadDonors(); setDonors(dnrs);
   }, []);
 
+  // Targeted refresh functions — only reload the table(s) affected by an action
+  const refreshInwards = useCallback(async () => { setInwards(await loadInwards()); }, []);
+  const refreshOutwards = useCallback(async () => { setOutwards(await loadOutwards()); }, []);
+  const refreshWastage = useCallback(async () => { setWastage(await loadWastage()); }, []);
+  const refreshItems = useCallback(async () => { setCustomItems(await loadCustomItems()); }, []);
+  const refreshVolunteers = useCallback(async () => { setVolunteers(await loadVolunteers()); }, []);
+  const refreshDonors = useCallback(async () => { setDonors(await loadDonors()); }, []);
+  const refreshArchive = useCallback(async () => { setArchive(await loadArchive()); }, []);
+
   useEffect(() => {
-    initDB().then(refresh).then(() => setLoading(false));
-  }, [refresh]);
+    firstLoad().then(({ inv, out, wst, ci, arch, vols, dnrs }) => {
+      setInwards(inv); setOutwards(out); setWastage(wst); setCustomItems(ci);
+      setArchive(arch); setVolunteers(vols); setDonors(dnrs);
+      setLoading(false);
+    });
+  }, []);
 
   const handleRefresh = async () => {
+    if (actionInProgress) return;
+    setActionInProgress(true);
     setRefreshing(true);
-    await refresh();
-    setRefreshing(false);
+    try {
+      await refresh();
+    } finally {
+      setRefreshing(false);
+      setActionInProgress(false);
+    }
   };
 
   const handleAddInward = async (item: string, category: string, qty: number, unit: string, donor: string, bestBefore: string, stor: StorageLocation, enteredBy?: string, overrideDate?: string, unitValue?: number) => {
-    let formattedBB = bestBefore;
-    if (bestBefore && bestBefore.includes('-')) {
-      const [y, m, d] = bestBefore.split('-');
-      formattedBB = `${d}/${m}/${y}`;
+    if (actionInProgress) return;
+    setActionInProgress(true);
+    try {
+      let formattedBB = bestBefore;
+      if (bestBefore && bestBefore.includes('-')) {
+        const [y, m, d] = bestBefore.split('-');
+        formattedBB = `${d}/${m}/${y}`;
+      }
+      let formattedDate = overrideDate;
+      if (overrideDate && overrideDate.includes('-')) {
+        const [y, m, d] = overrideDate.split('-');
+        formattedDate = `${d}/${m}/${y}`;
+      }
+      await addInward(item, category, qty, unit, donor, formattedBB, stor, enteredBy || '', formattedDate, unitValue || 0);
+      await refreshInwards();
+    } finally {
+      setActionInProgress(false);
     }
-    let formattedDate = overrideDate;
-    if (overrideDate && overrideDate.includes('-')) {
-      const [y, m, d] = overrideDate.split('-');
-      formattedDate = `${d}/${m}/${y}`;
+  };
+
+  const handleBulkAddInward = async (items: Array<{
+    item: string; category: string; qty: number; unit: string;
+    donor: string; bestBefore: string; storage: StorageLocation;
+    enteredBy: string; date: string; unitValue: number;
+  }>): Promise<number> => {
+    if (actionInProgress) return 0;
+    setActionInProgress(true);
+    try {
+      const count = await bulkAddInwards(items);
+      await refreshInwards();
+      return count;
+    } finally {
+      setActionInProgress(false);
     }
-    await addInward(item, category, qty, unit, donor, formattedBB, stor, enteredBy || '', formattedDate, unitValue || 0);
-    await refresh();
   };
 
   const handleTake = async (inwardId: string, qty: number, takenBy: string, recordedBy: string, overrideDate?: string) => {
-    let formattedDate = overrideDate;
-    if (overrideDate && overrideDate.includes('-')) {
-      const [y, m, d] = overrideDate.split('-');
-      formattedDate = `${d}/${m}/${y}`;
+    if (actionInProgress) return;
+    setActionInProgress(true);
+    try {
+      let formattedDate = overrideDate;
+      if (overrideDate && overrideDate.includes('-')) {
+        const [y, m, d] = overrideDate.split('-');
+        formattedDate = `${d}/${m}/${y}`;
+      }
+      await addOutward(inwardId, qty, takenBy, recordedBy, formattedDate);
+      await refreshInwards();
+      await refreshOutwards();
+    } finally {
+      setActionInProgress(false);
     }
-    await addOutward(inwardId, qty, takenBy, recordedBy, formattedDate);
-    await refresh();
   };
 
   const handleAddWastage = async (inwardId: string, qty: number, reason: string, reportedBy: string, notes: string, overrideDate?: string, weightKg?: number) => {
-    let formattedDate = overrideDate;
-    if (overrideDate && overrideDate.includes('-')) {
-      const [y, m, d] = overrideDate.split('-');
-      formattedDate = `${d}/${m}/${y}`;
+    if (actionInProgress) return;
+    setActionInProgress(true);
+    try {
+      let formattedDate = overrideDate;
+      if (overrideDate && overrideDate.includes('-')) {
+        const [y, m, d] = overrideDate.split('-');
+        formattedDate = `${d}/${m}/${y}`;
+      }
+      await addWastage(inwardId, qty, reason, reportedBy, notes, formattedDate, weightKg || 0);
+      await refreshInwards();
+      await refreshWastage();
+    } finally {
+      setActionInProgress(false);
     }
-    await addWastage(inwardId, qty, reason, reportedBy, notes, formattedDate, weightKg || 0);
-    await refresh();
   };
 
   const handleMoveItem = async (id: string, newStorage: StorageLocation) => {
     await moveInwardItem(id, newStorage);
-    await refresh();
+    await refreshInwards();
   };
 
-  const handleDeleteOutward = async (id: number) => { await deleteOutward(id); await refresh(); };
-  const handleDeleteWastage = async (id: number) => { await deleteWastage(id); await refresh(); };
-  const handleDeleteInward = async (id: string) => { await deleteInward(id); await refresh(); };
+  const handleDeleteOutward = async (id: number) => { await deleteOutward(id); await refreshInwards(); await refreshOutwards(); };
+  const handleDeleteWastage = async (id: number) => { await deleteWastage(id); await refreshInwards(); await refreshWastage(); };
+  const handleDeleteInward = async (id: string) => { await deleteInward(id); await refreshInwards(); await refreshOutwards(); await refreshWastage(); };
 
   const handleEditInward = async (id: string, fields: { item?: string; category?: string; qty_in?: number; donor?: string; best_before?: string; entered_by?: string }) => {
     await updateInward(id, fields);
-    await refresh();
+    // If category was changed, also update master Items list so future imports use the corrected category
+    if (fields.item && fields.category) {
+      await updateCustomItemCategory(fields.item, fields.category);
+      await refreshItems();
+    }
+    await refreshInwards();
   };
 
   const handleEditOutward = async (id: number, fields: { qty_taken?: number; taken_by?: string; recorded_by?: string }) => {
     await updateOutward(id, fields);
-    await refresh();
+    await refreshInwards();
+    await refreshOutwards();
   };
 
   const handleAddCustomItem = async (name: string, category: string) => {
     await addCustomItem(name, category);
-    await refresh();
+    await refreshItems();
   };
   const handleDeleteCustomItem = async (id: number) => {
     await deleteCustomItem(id);
-    await refresh();
+    await refreshItems();
   };
 
   // Archive completed items
   const handleArchive = async () => {
-    const count = await archiveCompletedItems();
-    await refresh();
-    if (count > 0) {
-      setArchiveMsg(`✅ Archived ${count} completed item${count !== 1 ? 's' : ''} to history`);
-    } else {
-      setArchiveMsg('ℹ️ No completed items to archive (all items still have remaining stock)');
+    if (actionInProgress) return;
+    setActionInProgress(true);
+    try {
+      const count = await archiveCompletedItems();
+      await refreshInwards();
+      await refreshOutwards();
+      await refreshWastage();
+      await refreshArchive();
+      if (count > 0) {
+        setArchiveMsg(`✅ Archived ${count} completed item${count !== 1 ? 's' : ''} to history`);
+      } else {
+        setArchiveMsg('ℹ️ No completed items to archive (all items still have remaining stock)');
+      }
+      setTimeout(() => setArchiveMsg(null), 4000);
+    } finally {
+      setActionInProgress(false);
     }
-    setTimeout(() => setArchiveMsg(null), 4000);
   };
 
   const handleDeleteArchive = async (id: string) => {
     await deleteArchiveItem(id);
-    await refresh();
+    await refreshArchive();
   };
 
   // Bulk inwards to outwards
   const handleBulkOutwards = async (): Promise<number> => {
     const count = await bulkInwardsToOutwards(activeVolunteer);
-    await refresh();
+    await refreshInwards();
+    await refreshOutwards();
     return count;
   };
 
   // Admin actions
-  const handleClearLive = async () => { await clearAllData(); await refresh(); };
-  const handleClearArchive = async () => { await clearArchive(); await refresh(); };
+  const handleClearLive = async () => { await clearAllData(); await refreshInwards(); await refreshOutwards(); await refreshWastage(); };
+  const handleClearArchive = async () => { await clearArchive(); await refreshArchive(); };
   const handleClearEverything = async () => { await clearEverything(); await refresh(); };
   const handleImportInwards = async (csv: string): Promise<number> => {
     const count = await importInwardsFromCSV(csv);
-    await refresh();
+    await refreshInwards();
     return count;
   };
   const handleImportOutwards = async (csv: string): Promise<number> => {
     const count = await importOutwardsFromCSV(csv);
-    await refresh();
+    await refreshInwards();
+    await refreshOutwards();
     return count;
   };
   const handleImportWastage = async (csv: string): Promise<number> => {
     const count = await importWastageFromCSV(csv);
-    await refresh();
+    await refreshInwards();
+    await refreshWastage();
     return count;
   };
   const handleImportItems = async (csv: string): Promise<number> => {
     const count = await importCustomItems(csv);
-    await refresh();
+    await refreshItems();
     return count;
   };
 
@@ -312,15 +397,17 @@ const App: React.FC = () => {
             storage={storage} onStorageChange={setStorage}
             onAdd={handleAddInward} onDelete={handleDeleteInward}
             onMove={handleMoveItem} onEdit={handleEditInward}
+            onBulkAdd={handleBulkAddInward}
             activeVolunteer={activeVolunteer} volunteers={volunteers}
             donors={donors}
+            onRefreshItems={refreshItems}
           />
         )}
         {tab === 'outwards' && (
           <OutwardsTab
             inwards={inwards} outwards={outwards}
             storage={storage} onStorageChange={setStorage}
-            onTake={handleTake} onTakeAll={async (s, by, rec, d) => { const c = await quickTakeAllAvailable(s, by, rec, d); await refresh(); return c; }} onDelete={handleDeleteOutward}
+            onTake={handleTake} onTakeAll={async (s, by, rec, d) => { const c = await quickTakeAllAvailable(s, by, rec, d); await refreshInwards(); await refreshOutwards(); return c; }} onDelete={handleDeleteOutward}
             onEdit={handleEditOutward} activeVolunteer={activeVolunteer} volunteers={volunteers}
           />
         )}
@@ -339,35 +426,35 @@ const App: React.FC = () => {
             onDelete={handleDeleteCustomItem}
             onImportItems={async (csv: string) => {
               const count = await importCustomItems(csv);
-              await refresh();
+              await refreshItems();
               return count;
             }}
             volunteers={volunteers}
             onAddVolunteer={async (name: string, initials: string) => {
               await addVolunteer(name, initials);
-              await refresh();
+              await refreshVolunteers();
             }}
             onDeleteVolunteer={async (id: number) => {
               await deleteVolunteer(id);
-              await refresh();
+              await refreshVolunteers();
             }}
             onImportVolunteers={async (csv: string) => {
               const count = await importVolunteers(csv);
-              await refresh();
+              await refreshVolunteers();
               return count;
             }}
             donors={donors}
             onAddDonor={async (name: string) => {
               await addDonor(name);
-              await refresh();
+              await refreshDonors();
             }}
             onDeleteDonor={async (id: number) => {
               await deleteDonor(id);
-              await refresh();
+              await refreshDonors();
             }}
             onImportDonors={async (csv: string) => {
               const count = await importDonors(csv);
-              await refresh();
+              await refreshDonors();
               return count;
             }}
           />
