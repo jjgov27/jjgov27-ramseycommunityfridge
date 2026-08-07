@@ -38,7 +38,8 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
 
   const [startDate, setStartDate] = useState(toISODate(thirtyDaysAgo));
   const [endDate, setEndDate] = useState(toISODate(today));
-  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly' | 'custom' | 'stockcheck'>('inwards');
+  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly' | 'custom' | 'stockcheck' | 'donor'>('inwards');
+  const [selectedDonor, setSelectedDonor] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -50,7 +51,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
     donorBreakdown: true, categoryBreakdown: true, volunteerActivity: true, pieCharts: true,
   });
 
-  const isFullReport = reportType === 'all' || reportType === 'custom';
+  const isFullReport = reportType === 'all' || reportType === 'custom' || reportType === 'donor';
 
   // Reconstruct archived data
   const archivedInwards = useMemo(() => archive.map(a => ({
@@ -318,14 +319,26 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                 <option value="outwards">📤 Outwards Only</option>
                 <option value="wastage">🗑️ Wastage Only</option>
                 <option value="all">📊 Full Report (All)</option>
+                <option value="donor">🏢 Donor Report</option>
                 <option value="monthly">🥧 Monthly Pie Charts</option>
                 <option value="custom">📋 Custom Report Builder</option>
                 <option value="stockcheck">📋 Stock Check</option>
               </select>
             </div>
+            {reportType === 'donor' && (
+              <div className="flex-1 min-w-[160px]">
+                <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Users size={10} /> Donor</label>
+                <select className="select select-bordered select-xs w-full" value={selectedDonor} onChange={e => setSelectedDonor(e.target.value)}>
+                  <option value="">Select a donor...</option>
+                  {[...donors].sort((a, b) => a.name.localeCompare(b.name)).map(d => (
+                    <option key={d.id} value={d.name}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
-          {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && (
+          {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && reportType !== 'donor' && (
             <button className="btn btn-xs btn-primary gap-1" onClick={downloadCSV}>
               <Download size={12} /> Download CSV
             </button>
@@ -1265,6 +1278,319 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
         );
       })()}
 
+      {/* ===== DONOR REPORT ===== */}
+      {reportType === 'donor' && (() => {
+        const donorItems = selectedDonor
+          ? filteredInwards.filter(i => (i.donor || '').trim().toLowerCase() === selectedDonor.trim().toLowerCase())
+          : [];
+        const sortedDonorItems = [...donorItems].sort((a, b) => {
+          const da = parseDateStr(a.date_in)?.getTime() || 0;
+          const db = parseDateStr(b.date_in)?.getTime() || 0;
+          return db - da;
+        });
+        const donorTotalItems = donorItems.length;
+        const donorTotalQty = donorItems.reduce((s, i) => s + (i.qty_in || 0), 0);
+        const donorTotalValue = donorItems.reduce((s, i) => s + (i.unit_value || 0) * (i.qty_in || 0), 0);
+
+        const getWeekNumber = (d: Date) => {
+          const onejan = new Date(d.getFullYear(), 0, 1);
+          return Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
+        };
+        const getWeekRangeLabel = (d: Date) => {
+          const day = d.getDay();
+          const diffToMonday = day === 0 ? -6 : 1 - day;
+          const monday = new Date(d);
+          monday.setDate(d.getDate() + diffToMonday);
+          const sunday = new Date(monday);
+          sunday.setDate(monday.getDate() + 6);
+          const fmt = (dt: Date) => dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+          return `${fmt(monday)} - ${fmt(sunday)} ${sunday.getFullYear()}`;
+        };
+
+        const weeklyMap: Record<string, { label: string; count: number; qty: number; value: number; sortKey: number }> = {};
+        donorItems.forEach(i => {
+          const d = parseDateStr(i.date_in);
+          if (!d) return;
+          const wk = getWeekNumber(d);
+          const key = `${d.getFullYear()}-W${wk}`;
+          if (!weeklyMap[key]) weeklyMap[key] = { label: getWeekRangeLabel(d), count: 0, qty: 0, value: 0, sortKey: d.getTime() };
+          weeklyMap[key].count++;
+          weeklyMap[key].qty += i.qty_in || 0;
+          weeklyMap[key].value += (i.unit_value || 0) * (i.qty_in || 0);
+        });
+        const weeklyRows = Object.entries(weeklyMap).sort((a, b) => a[1].sortKey - b[1].sortKey);
+
+        const monthlyMap: Record<string, { label: string; count: number; qty: number; value: number }> = {};
+        donorItems.forEach(i => {
+          const d = parseDateStr(i.date_in);
+          if (!d) return;
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          if (!monthlyMap[key]) monthlyMap[key] = { label: d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }), count: 0, qty: 0, value: 0 };
+          monthlyMap[key].count++;
+          monthlyMap[key].qty += i.qty_in || 0;
+          monthlyMap[key].value += (i.unit_value || 0) * (i.qty_in || 0);
+        });
+        const monthlyRows = Object.entries(monthlyMap).sort((a, b) => a[0].localeCompare(b[0]));
+
+        const downloadDonorCSV = () => {
+          let csv = 'DONOR REPORT\n';
+          csv += `Donor,"${selectedDonor}"\n`;
+          csv += `Period,${startDate} to ${endDate}\n`;
+          csv += 'Includes,Live + Archived data\n\n';
+          csv += 'Date,Item,Category,Qty,Unit,Value (£),Storage,Best Before\n';
+          sortedDonorItems.forEach(i => {
+            const val = (i.unit_value || 0) * (i.qty_in || 0);
+            csv += `"${i.date_in}","${i.item}","${i.category}",${i.qty_in},"${i.unit}",${val > 0 ? val.toFixed(2) : ''},"${i.storage}","${i.best_before || ''}"\n`;
+          });
+          csv += `\nTotal Items,,,${donorTotalItems}\nTotal Qty,,,${donorTotalQty}\nTotal Value (£),,,${donorTotalValue.toFixed(2)}\n\n`;
+
+          csv += 'WEEKLY BREAKDOWN\nWeek,Items,Qty,Value (£)\n';
+          weeklyRows.forEach(([, w]) => { csv += `"${w.label}",${w.count},${w.qty},${w.value.toFixed(2)}\n`; });
+          csv += `Total,${donorTotalItems},${donorTotalQty},${donorTotalValue.toFixed(2)}\n\n`;
+
+          csv += 'MONTHLY BREAKDOWN\nMonth,Items,Qty,Value (£)\n';
+          monthlyRows.forEach(([, m]) => { csv += `"${m.label}",${m.count},${m.qty},${m.value.toFixed(2)}\n`; });
+          csv += `Total,${donorTotalItems},${donorTotalQty},${donorTotalValue.toFixed(2)}\n`;
+
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `donor-report-${selectedDonor.replace(/\s+/g, '-')}-${startDate}-to-${endDate}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        const downloadDonorHTML = () => {
+          const itemsRows = sortedDonorItems.map((i, idx) => {
+            const val = (i.unit_value || 0) * (i.qty_in || 0);
+            return `<tr style="border-bottom:1px solid #e2e8f0;${idx % 2 === 1 ? 'background:#f8fafc;' : ''}">
+              <td style="padding:5px 8px;">${i.date_in}</td>
+              <td style="padding:5px 8px;font-weight:600;">${i.item}</td>
+              <td style="padding:5px 8px;">${i.category}</td>
+              <td style="padding:5px 8px;text-align:center;">${i.qty_in}</td>
+              <td style="padding:5px 8px;">${i.unit}</td>
+              <td style="padding:5px 8px;text-align:right;">${val > 0 ? '£' + val.toFixed(2) : '-'}</td>
+              <td style="padding:5px 8px;">${i.storage === 'fridge' ? 'Fridge' : 'Freezer'}</td>
+              <td style="padding:5px 8px;">${i.best_before || '-'}</td>
+            </tr>`;
+          }).join('');
+
+          const weeklyRowsHtml = weeklyRows.map(([, w]) => `<tr style="border-bottom:1px solid #e2e8f0;">
+              <td style="padding:5px 8px;">${w.label}</td>
+              <td style="padding:5px 8px;text-align:center;">${w.count}</td>
+              <td style="padding:5px 8px;text-align:center;">${w.qty}</td>
+              <td style="padding:5px 8px;text-align:right;">£${w.value.toFixed(2)}</td>
+            </tr>`).join('');
+
+          const monthlyRowsHtml = monthlyRows.map(([, m]) => `<tr style="border-bottom:1px solid #e2e8f0;">
+              <td style="padding:5px 8px;">${m.label}</td>
+              <td style="padding:5px 8px;text-align:center;">${m.count}</td>
+              <td style="padding:5px 8px;text-align:center;">${m.qty}</td>
+              <td style="padding:5px 8px;text-align:right;">£${m.value.toFixed(2)}</td>
+            </tr>`).join('');
+
+          const html = `<!DOCTYPE html><html><head><title>Donor Report — ${selectedDonor}</title>
+            <style>
+              body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #1e293b; max-width: 900px; margin: 0 auto; }
+              h1 { font-size: 20px; color: #c2410c; margin-bottom: 2px; }
+              h2 { font-size: 14px; margin: 20px 0 8px; color: #ea580c; border-bottom: 2px solid #fed7aa; padding-bottom: 4px; }
+              .subtitle { color: #64748b; font-size: 12px; margin-bottom: 20px; }
+              .summary { display: flex; gap: 16px; margin-bottom: 16px; }
+              .summary-card { flex: 1; padding: 12px 16px; border-radius: 8px; text-align: center; border: 1px solid #fed7aa; background: #fff7ed; }
+              .summary-card .num { font-size: 22px; font-weight: 800; color: #c2410c; }
+              .summary-card .label { font-size: 11px; color: #9a3412; }
+              table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px; }
+              thead tr { background: #fff7ed; border-bottom: 2px solid #ea580c; }
+              th { text-align: left; padding: 6px 8px; font-weight: 700; }
+              tfoot tr { border-top: 2px solid #ea580c; background: #fff7ed; font-weight: 700; }
+              tfoot td { padding: 6px 8px; }
+              @media print { body { padding: 10px; } }
+            </style>
+          </head><body>
+            <h1>🏢 Donor Report — ${selectedDonor}</h1>
+            <p class="subtitle">Period: ${startDate} to ${endDate} | Includes live + archived data | Generated ${new Date().toLocaleDateString('en-GB')}</p>
+            <div class="summary">
+              <div class="summary-card"><div class="num">${donorTotalItems}</div><div class="label">Items Received</div></div>
+              <div class="summary-card"><div class="num">${donorTotalQty}</div><div class="label">Total Quantity</div></div>
+              <div class="summary-card"><div class="num">£${donorTotalValue.toFixed(2)}</div><div class="label">Total Value</div></div>
+            </div>
+            <h2>Items Received</h2>
+            <table>
+              <thead><tr><th>Date</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit</th><th>Value (£)</th><th>Storage</th><th>Best Before</th></tr></thead>
+              <tbody>${itemsRows || '<tr><td colspan="8" style="padding:8px;color:#94a3b8;">No items in this period</td></tr>'}</tbody>
+            </table>
+            <h2>Weekly Breakdown</h2>
+            <table>
+              <thead><tr><th>Week</th><th style="text-align:center;">Items</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Value (£)</th></tr></thead>
+              <tbody>${weeklyRowsHtml || '<tr><td colspan="4" style="padding:8px;color:#94a3b8;">No data</td></tr>'}</tbody>
+              <tfoot><tr><td>Total</td><td style="text-align:center;">${donorTotalItems}</td><td style="text-align:center;">${donorTotalQty}</td><td style="text-align:right;">£${donorTotalValue.toFixed(2)}</td></tr></tfoot>
+            </table>
+            <h2>Monthly Breakdown</h2>
+            <table>
+              <thead><tr><th>Month</th><th style="text-align:center;">Items</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Value (£)</th></tr></thead>
+              <tbody>${monthlyRowsHtml || '<tr><td colspan="4" style="padding:8px;color:#94a3b8;">No data</td></tr>'}</tbody>
+              <tfoot><tr><td>Total</td><td style="text-align:center;">${donorTotalItems}</td><td style="text-align:center;">${donorTotalQty}</td><td style="text-align:right;">£${donorTotalValue.toFixed(2)}</td></tr></tfoot>
+            </table>
+            <p style="text-align:center;color:#94a3b8;font-size:10px;margin-top:16px;">Generated from Ramsey Community Fridge App</p>
+          </body></html>`;
+
+          const blob = new Blob([html], { type: 'text/html' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Donor-Report-${selectedDonor.replace(/\s+/g, '-')}-${startDate}-to-${endDate}.html`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        if (!selectedDonor) {
+          return (
+            <div className="bg-base-200/50 rounded-lg p-6 text-center">
+              <p className="text-2xl mb-2">🏢</p>
+              <p className="text-sm font-medium text-base-content/60">Select a donor above to generate their report</p>
+            </div>
+          );
+        }
+
+        return (
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <button className="btn btn-xs btn-primary gap-1" onClick={downloadDonorHTML}>🖨️ Print</button>
+              <button className="btn btn-xs btn-secondary gap-1" onClick={downloadDonorCSV}><Download size={12} /> CSV</button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="card bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200">
+                <div className="card-body p-3 text-center">
+                  <p className="text-2xl font-bold text-orange-700">{donorTotalItems}</p>
+                  <p className="text-xs text-orange-500">Items Received</p>
+                </div>
+              </div>
+              <div className="card bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200">
+                <div className="card-body p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-700">{donorTotalQty}</p>
+                  <p className="text-xs text-amber-500">Total Quantity</p>
+                </div>
+              </div>
+              <div className="card bg-gradient-to-br from-green-50 to-green-100 border border-green-200">
+                <div className="card-body p-3 text-center">
+                  <p className="text-2xl font-bold text-green-700">£{donorTotalValue.toFixed(2)}</p>
+                  <p className="text-xs text-green-500">Total Value</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="text-xs font-bold text-orange-700">🏢 {selectedDonor} — Items Received</p>
+                {sortedDonorItems.length === 0 ? (
+                  <p className="text-xs text-base-content/40 text-center py-4">No items from this donor in this period</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table table-xs w-full">
+                      <thead>
+                        <tr className="text-[10px]">
+                          <th>Date</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit</th><th>Value (£)</th><th>Storage</th><th>Best Before</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedDonorItems.map(i => {
+                          const val = (i.unit_value || 0) * (i.qty_in || 0);
+                          const catCls = CATEGORY_COLOURS[i.category] || 'bg-gray-100 text-gray-700';
+                          return (
+                            <tr key={i.id} className="text-[10px]">
+                              <td>{i.date_in}</td>
+                              <td className="font-medium">{i.item}</td>
+                              <td><span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${catCls}`}>{i.category}</span></td>
+                              <td>{i.qty_in}</td>
+                              <td>{i.unit}</td>
+                              <td>{val > 0 ? `£${val.toFixed(2)}` : '-'}</td>
+                              <td>{i.storage === 'fridge' ? '🧊 Fridge' : '❄️ Freezer'}</td>
+                              <td>{i.best_before || '-'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="text-xs font-bold text-blue-700">📅 Weekly Breakdown</p>
+                {weeklyRows.length === 0 ? (
+                  <p className="text-xs text-base-content/40 text-center py-4">No data in this period</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table table-xs w-full">
+                      <thead>
+                        <tr className="text-[10px]"><th>Week</th><th className="text-center">Items</th><th className="text-center">Qty</th><th className="text-right">Value (£)</th></tr>
+                      </thead>
+                      <tbody>
+                        {weeklyRows.map(([key, w]) => (
+                          <tr key={key} className="text-[10px]">
+                            <td>{w.label}</td>
+                            <td className="text-center">{w.count}</td>
+                            <td className="text-center">{w.qty}</td>
+                            <td className="text-right">£{w.value.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="text-[10px] font-bold border-t-2">
+                          <td>Total</td>
+                          <td className="text-center">{donorTotalItems}</td>
+                          <td className="text-center">{donorTotalQty}</td>
+                          <td className="text-right">£{donorTotalValue.toFixed(2)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="text-xs font-bold text-purple-700">🗓️ Monthly Breakdown</p>
+                {monthlyRows.length === 0 ? (
+                  <p className="text-xs text-base-content/40 text-center py-4">No data in this period</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table table-xs w-full">
+                      <thead>
+                        <tr className="text-[10px]"><th>Month</th><th className="text-center">Items</th><th className="text-center">Qty</th><th className="text-right">Value (£)</th></tr>
+                      </thead>
+                      <tbody>
+                        {monthlyRows.map(([key, m]) => (
+                          <tr key={key} className="text-[10px]">
+                            <td>{m.label}</td>
+                            <td className="text-center">{m.count}</td>
+                            <td className="text-center">{m.qty}</td>
+                            <td className="text-right">£{m.value.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="text-[10px] font-bold border-t-2">
+                          <td>Total</td>
+                          <td className="text-center">{donorTotalItems}</td>
+                          <td className="text-center">{donorTotalQty}</td>
+                          <td className="text-right">£{donorTotalValue.toFixed(2)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Custom Report Builder */}
       {reportType === 'custom' && (() => {
         // Gather all months from all data (inwards + outwards + wastage + archived)
@@ -1685,7 +2011,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       })()}
 
       {/* Full report extras */}
-      {isFullReport && reportType !== 'custom' && (
+      {isFullReport && reportType !== 'custom' && reportType !== 'donor' && (
         <>
           <div className="card bg-base-100 border border-base-300 shadow-sm">
             <div className="card-body p-3 space-y-2">
