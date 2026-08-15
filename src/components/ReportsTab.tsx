@@ -30,6 +30,7 @@ const parseDateStr = (d: string): Date | null => {
 
 const toISODate = (d: Date) => d.toISOString().split('T')[0];
 const kgToLbs = (kg: number) => (kg * 2.20462).toFixed(1);
+const isMeat = (category: string) => category === 'Meat';
 
 export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storage, onStorageChange, archive, customItems, donors }) => {
   const today = new Date();
@@ -196,12 +197,12 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       csv += `Period,${startDate} to ${endDate}\n`;
       if (isFullReport) csv += 'Includes,Live + Archived data\n';
       csv += '\n';
-      csv += 'Date,Time,Item,Quantity,Unit,Category,Location,Moved To,Moved Date,Donor/Source,Volunteer,Best Before,Value (£),Total Value (£),Status\n';
+      csv += 'Date,Time,Item,Quantity,Unit,Category,Location,Moved To,Moved Date,Donor/Source,Volunteer,Use By,Best Before,Value (£),Total Value (£),Status\n';
       filteredInwards.forEach(i => {
         const status = i.qty_remaining <= 0 ? 'All Gone' : (i.total_taken > 0 || i.total_wasted > 0) ? 'Partial' : 'Available';
         const uv = i.unit_value || 0;
         const totalVal = uv * i.qty_in;
-        csv += `"${i.date_in}","${i.time_in || ''}","${i.item}",${i.qty_in},"${i.unit}","${i.category}","${i.storage}","${i.moved_to || ''}","${i.moved_date || ''}","${i.donor || ''}","${i.entered_by || ''}","${i.best_before || ''}",${uv > 0 ? uv.toFixed(2) : ''},${totalVal > 0 ? totalVal.toFixed(2) : ''},"${status}"\n`;
+        csv += `"${i.date_in}","${i.time_in || ''}","${i.item}",${i.qty_in},"${i.unit}","${i.category}","${i.storage}","${i.moved_to || ''}","${i.moved_date || ''}","${i.donor || ''}","${i.entered_by || ''}","${isMeat(i.category) ? i.best_before || '' : '-'}","${isMeat(i.category) ? '-' : i.best_before || ''}",${uv > 0 ? uv.toFixed(2) : ''},${totalVal > 0 ? totalVal.toFixed(2) : ''},"${status}"\n`;
       });
       csv += `\nTotal Items In,,,${totalInQty}\nTotal Entries,,,${filteredInwards.length}\n\n`;
 
@@ -395,7 +396,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                     <thead>
                       <tr className="text-[10px]">
                         <th>Date</th><th>Time</th><th>Item</th><th>Qty</th><th>Location</th>
-                        <th>Moved To</th><th>Moved Date</th><th>Donor</th><th>Volunteer</th><th>Value (£)</th>
+                        <th>Moved To</th><th>Moved Date</th><th>Donor</th><th>Volunteer</th><th>Use By</th><th>Best Before</th><th>Value (£)</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -410,6 +411,9 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                           <td>{i.moved_date || '-'}</td>
                           <td>{i.donor || '-'}</td>
                           <td>{i.entered_by || '-'}</td>
+                          <td>{isMeat(i.category) ? i.best_before || '-' : '-'}</td>
+                          <td>{isMeat(i.category) ? '-' : i.best_before || '-'}</td>
+                          <td>{i.unit_value > 0 ? `£${i.unit_value.toFixed(2)}` : '-'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1012,13 +1016,16 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   
   // Group by item name + category for summary
   const groupItems = (items: typeof inwards) => {
-    const map: Record<string, { item: string; category: string; totalQty: number; unit: string; bestBefore: string[]; entries: typeof items }> = {};
+    const map: Record<string, { item: string; category: string; totalQty: number; unit: string; useBy: string[]; bestBefore: string[]; entries: typeof items }> = {};
     items.forEach(i => {
       const key = `${i.item}||${i.category}`;
-      if (!map[key]) map[key] = { item: i.item, category: i.category, totalQty: 0, unit: i.unit || '', bestBefore: [], entries: [] };
+      if (!map[key]) map[key] = { item: i.item, category: i.category, totalQty: 0, unit: i.unit || '', useBy: [], bestBefore: [], entries: [] };
       const rem = getRemaining(i);
       map[key].totalQty += rem;
-      if (i.best_before) map[key].bestBefore.push(i.best_before);
+      if (i.best_before) {
+        if (isMeat(i.category)) map[key].useBy.push(i.best_before);
+        else map[key].bestBefore.push(i.best_before);
+      }
       map[key].entries.push(i);
     });
     return Object.values(map).sort((a, b) => a.item.localeCompare(b.item));
@@ -1044,18 +1051,21 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               <th style="text-align:left;padding:6px 8px;font-weight:700;">Item</th>
               <th style="text-align:left;padding:6px 8px;font-weight:700;">Category</th>
               <th style="text-align:center;padding:6px 8px;font-weight:700;">Qty</th>
+              <th style="text-align:left;padding:6px 8px;font-weight:700;">Use By</th>
               <th style="text-align:left;padding:6px 8px;font-weight:700;">Best Before</th>
               <th style="text-align:center;padding:6px 8px;font-weight:700;width:60px;">✓</th>
             </tr>
           </thead>
           <tbody>
             ${groups.map((g, idx) => {
+              const ub = g.useBy.length > 0 ? g.useBy.join(', ') : '-';
               const bb = g.bestBefore.length > 0 ? g.bestBefore.join(', ') : '-';
               const catColor = g.category === 'Meat' ? '#dc2626' : g.category === 'Bakery' ? '#d97706' : g.category === 'Vegetables' ? '#16a34a' : g.category === 'Dairy' ? '#2563eb' : '#6b7280';
               return `<tr style="border-bottom:1px solid #e2e8f0;${idx % 2 === 1 ? 'background:#f8fafc;' : ''}">
                 <td style="padding:5px 8px;font-weight:600;">${g.item}</td>
                 <td style="padding:5px 8px;"><span style="color:${catColor};font-weight:500;">${g.category}</span></td>
                 <td style="padding:5px 8px;text-align:center;font-weight:700;font-size:15px;">${g.totalQty}</td>
+                <td style="padding:5px 8px;font-size:12px;color:#64748b;">${ub}</td>
                 <td style="padding:5px 8px;font-size:12px;color:#64748b;">${bb}</td>
                 <td style="padding:5px 8px;text-align:center;"><span style="display:inline-block;width:18px;height:18px;border:2px solid #94a3b8;border-radius:3px;"></span></td>
               </tr>`;
@@ -1065,7 +1075,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
             <tr style="border-top:2px solid #16a34a;background:#f0fdf4;">
               <td style="padding:6px 8px;font-weight:700;" colspan="2">TOTAL</td>
               <td style="padding:6px 8px;text-align:center;font-weight:800;font-size:16px;">${total}</td>
-              <td colspan="2"></td>
+              <td colspan="3"></td>
             </tr>
           </tfoot>
         </table>`;
@@ -1123,11 +1133,12 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   
   // CSV download
   const downloadStockCSV = () => {
-    let csv = 'Location,Item,Category,Quantity,Best Before\n';
+    let csv = 'Location,Item,Category,Quantity,Use By,Best Before\n';
     const addRows = (loc: string, groups: typeof fridgeGrouped) => {
       groups.forEach(g => {
+        const ub = g.useBy.length > 0 ? g.useBy.join('; ') : '';
         const bb = g.bestBefore.length > 0 ? g.bestBefore.join('; ') : '';
-        csv += `"${loc}","${g.item}","${g.category}",${g.totalQty},"${bb}"\n`;
+        csv += `"${loc}","${g.item}","${g.category}",${g.totalQty},"${ub}","${bb}"\n`;
       });
     };
     addRows('Fridge', fridgeGrouped);
@@ -1177,7 +1188,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
             <p className="text-xs font-bold text-blue-700">❄️ Fridge — {fridgeGrouped.length} items, {totalFridge} total qty</p>
             <div className="overflow-x-auto">
               <table className="table table-xs w-full">
-                <thead><tr className="text-[10px]"><th>Item</th><th>Category</th><th className="text-center">Qty</th><th>Best Before</th></tr></thead>
+                <thead><tr className="text-[10px]"><th>Item</th><th>Category</th><th className="text-center">Qty</th><th>Use By</th><th>Best Before</th></tr></thead>
                 <tbody>
                   {fridgeGrouped.map((g, idx) => {
                     const catCls = CATEGORY_COLOURS[g.category] || 'bg-gray-100 text-gray-700';
@@ -1186,6 +1197,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                         <td className="font-semibold">{g.item}</td>
                         <td><span className={`text-[9px] px-1.5 py-0.5 rounded-full ${catCls}`}>{g.category}</span></td>
                         <td className="text-center font-bold text-blue-600">{g.totalQty}</td>
+                        <td className="text-base-content/60">{g.useBy.length > 0 ? g.useBy.join(', ') : '-'}</td>
                         <td className="text-base-content/60">{g.bestBefore.length > 0 ? g.bestBefore.join(', ') : '-'}</td>
                       </tr>
                     );
@@ -1204,7 +1216,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
             <p className="text-xs font-bold text-cyan-700">🧊 Freezer — {freezerGrouped.length} items, {totalFreezer} total qty</p>
             <div className="overflow-x-auto">
               <table className="table table-xs w-full">
-                <thead><tr className="text-[10px]"><th>Item</th><th>Category</th><th className="text-center">Qty</th><th>Best Before</th></tr></thead>
+                <thead><tr className="text-[10px]"><th>Item</th><th>Category</th><th className="text-center">Qty</th><th>Use By</th><th>Best Before</th></tr></thead>
                 <tbody>
                   {freezerGrouped.map((g, idx) => {
                     const catCls = CATEGORY_COLOURS[g.category] || 'bg-gray-100 text-gray-700';
@@ -1213,6 +1225,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                         <td className="font-semibold">{g.item}</td>
                         <td><span className={`text-[9px] px-1.5 py-0.5 rounded-full ${catCls}`}>{g.category}</span></td>
                         <td className="text-center font-bold text-cyan-600">{g.totalQty}</td>
+                        <td className="text-base-content/60">{g.useBy.length > 0 ? g.useBy.join(', ') : '-'}</td>
                         <td className="text-base-content/60">{g.bestBefore.length > 0 ? g.bestBefore.join(', ') : '-'}</td>
                       </tr>
                     );
@@ -1337,10 +1350,10 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           csv += `Donor,"${selectedDonor}"\n`;
           csv += `Period,${startDate} to ${endDate}\n`;
           csv += 'Includes,Live + Archived data\n\n';
-          csv += 'Date,Item,Category,Qty,Unit,Value (£),Storage,Best Before\n';
+          csv += 'Date,Item,Category,Qty,Unit,Value (£),Storage,Use By,Best Before\n';
           sortedDonorItems.forEach(i => {
             const val = (i.unit_value || 0) * (i.qty_in || 0);
-            csv += `"${i.date_in}","${i.item}","${i.category}",${i.qty_in},"${i.unit}",${val > 0 ? val.toFixed(2) : ''},"${i.storage}","${i.best_before || ''}"\n`;
+            csv += `"${i.date_in}","${i.item}","${i.category}",${i.qty_in},"${i.unit}",${val > 0 ? val.toFixed(2) : ''},"${i.storage}","${isMeat(i.category) ? i.best_before || '' : '-'}","${isMeat(i.category) ? '-' : i.best_before || ''}"\n`;
           });
           csv += `\nTotal Items,,,${donorTotalItems}\nTotal Qty,,,${donorTotalQty}\nTotal Value (£),,,${donorTotalValue.toFixed(2)}\n\n`;
 
@@ -1372,7 +1385,8 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               <td style="padding:5px 8px;">${i.unit}</td>
               <td style="padding:5px 8px;text-align:right;">${val > 0 ? '£' + val.toFixed(2) : '-'}</td>
               <td style="padding:5px 8px;">${i.storage === 'fridge' ? 'Fridge' : 'Freezer'}</td>
-              <td style="padding:5px 8px;">${i.best_before || '-'}</td>
+              <td style="padding:5px 8px;">${isMeat(i.category) ? i.best_before || '-' : '-'}</td>
+              <td style="padding:5px 8px;">${isMeat(i.category) ? '-' : i.best_before || '-'}</td>
             </tr>`;
           }).join('');
 
@@ -1417,8 +1431,8 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
             </div>
             <h2>Items Received</h2>
             <table>
-              <thead><tr><th>Date</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit</th><th>Value (£)</th><th>Storage</th><th>Best Before</th></tr></thead>
-              <tbody>${itemsRows || '<tr><td colspan="8" style="padding:8px;color:#94a3b8;">No items in this period</td></tr>'}</tbody>
+              <thead><tr><th>Date</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit</th><th>Value (£)</th><th>Storage</th><th>Use By</th><th>Best Before</th></tr></thead>
+              <tbody>${itemsRows || '<tr><td colspan="9" style="padding:8px;color:#94a3b8;">No items in this period</td></tr>'}</tbody>
             </table>
             <h2>Weekly Breakdown</h2>
             <table>
@@ -1491,7 +1505,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                     <table className="table table-xs w-full">
                       <thead>
                         <tr className="text-[10px]">
-                          <th>Date</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit</th><th>Value (£)</th><th>Storage</th><th>Best Before</th>
+                          <th>Date</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit</th><th>Value (£)</th><th>Storage</th><th>Use By</th><th>Best Before</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1507,7 +1521,8 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                               <td>{i.unit}</td>
                               <td>{val > 0 ? `£${val.toFixed(2)}` : '-'}</td>
                               <td>{i.storage === 'fridge' ? '🧊 Fridge' : '❄️ Freezer'}</td>
-                              <td>{i.best_before || '-'}</td>
+                              <td>{isMeat(i.category) ? i.best_before || '-' : '-'}</td>
+                              <td>{isMeat(i.category) ? '-' : i.best_before || '-'}</td>
                             </tr>
                           );
                         })}

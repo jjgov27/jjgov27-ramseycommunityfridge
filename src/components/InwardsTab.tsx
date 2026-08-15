@@ -41,7 +41,7 @@ const SingleItemCard: React.FC<{
               <input type="number" className="input input-bordered input-xs w-full" min={1} value={editQty} onChange={e => setEditQty(Number(e.target.value))} /></div>
             <div><label className="text-[10px] text-base-content/50 font-medium">Donor</label>
               <input className="input input-bordered input-xs w-full" value={editDonor} onChange={e => setEditDonor(e.target.value)} /></div>
-            <div><label className="text-[10px] text-base-content/50 font-medium">Best Before</label>
+            <div><label className="text-[10px] text-base-content/50 font-medium">{editCategory === 'Meat' ? 'Use By' : 'Best Before'}</label>
               <input className="input input-bordered input-xs w-full" value={editBestBefore} onChange={e => setEditBestBefore(e.target.value)} /></div>
             <div><label className="text-[10px] text-base-content/50 font-medium">Entered By</label>
               <input className="input input-bordered input-xs w-full" value={editEnteredBy} onChange={e => setEditEnteredBy(e.target.value)} /></div>
@@ -68,7 +68,7 @@ const SingleItemCard: React.FC<{
             <div className="text-xs text-base-content/60 space-y-0.5">
               <div>{i.donor ? `From: ${i.donor}` : 'No donor'}{i.entered_by ? ` · ✍️ ${i.entered_by}` : ''} · {i.date_in} {i.time_in}</div>
               {i.unit_value > 0 && <div>💷 Value: <span className="font-medium text-emerald-700">£{i.unit_value.toFixed(2)} × {i.qty_in} = £{(i.unit_value * i.qty_in).toFixed(2)}</span></div>}
-              {i.best_before && <div>📅 Best before: <span className="font-medium">{i.best_before}</span></div>}
+              {i.best_before && <div>📅 {i.category === 'Meat' ? 'Use By' : 'Best Before'}: <span className="font-medium">{i.best_before}</span></div>}
               {i.moved_to && i.moved_date && (
                 <div className="text-purple-600 font-medium">↪ Moved to {i.moved_to === 'fridge' ? '🧊 Fridge' : '❄️ Freezer'} on {i.moved_date}</div>
               )}
@@ -212,7 +212,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
 
   const handleSubmit = () => {
     if (!item.trim() || qty <= 0) return;
-    if (!bestBefore) { alert('Please select a Best Before / Sell By date'); return; }
+    if (!bestBefore) { alert(`Please select a ${category === 'Meat' ? 'Use By' : 'Best Before'} date`); return; }
     onAdd(item.trim(), category || 'Other', qty, unit, donor.trim(), bestBefore, storage, enteredBy.trim(), dateIn, unitValue || 0);
     setItem('');
     setCategory('');
@@ -302,8 +302,8 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
               {isFridge ? '🧊' : '❄️'} New {isFridge ? 'Fridge' : 'Freezer'} Entry
             </h3>
 
-            {/* Row 1: Date — Item Name — Category */}
-            <div className="grid grid-cols-3 gap-2">
+            {/* Row 1: Date — Item Name — Category — Use By / Best Before */}
+            <div className="grid grid-cols-4 gap-2">
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">📅 Date Received</span></label>
                 <input tabIndex={1} type="date" className="input input-bordered input-xs w-full bg-white" value={dateIn} onChange={e => setDateIn(e.target.value)} />
@@ -329,24 +329,32 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                   {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
+              <div className="form-control">
+                <label className="label py-0">
+                  <span className={`label-text text-[11px] font-bold ${category === 'Meat' ? 'text-red-600' : 'text-blue-600'}`}>
+                    {category === 'Meat' ? '🔴 Use By' : '🔵 Best Before'}
+                  </span>
+                </label>
+                <input tabIndex={4} type="date" className={`input input-bordered input-xs w-full bg-white border-2 ${category === 'Meat' ? 'border-red-400' : 'border-blue-400'}`} value={bestBefore} onChange={e => setBestBefore(e.target.value)} />
+              </div>
             </div>
 
-            {/* Row 2: Qty — Unit — Donor — Value (£) — Best Before */}
-            <div className="grid grid-cols-5 gap-2">
+            {/* Row 2: Qty — Unit — Donor — Value (£) */}
+            <div className="grid grid-cols-4 gap-2">
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">Qty *</span></label>
-                <input tabIndex={4} type="number" className="input input-bordered input-xs w-full bg-white" min={1} value={qty} onChange={e => setQty(parseInt(e.target.value) || 1)} />
+                <input tabIndex={5} type="number" className="input input-bordered input-xs w-full bg-white" min={1} value={qty} onChange={e => setQty(parseInt(e.target.value) || 1)} />
               </div>
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">Unit</span></label>
-                <select tabIndex={5} className="select select-bordered select-xs w-full bg-white" value={unit} onChange={e => setUnit(e.target.value)}>
+                <select tabIndex={6} className="select select-bordered select-xs w-full bg-white" value={unit} onChange={e => setUnit(e.target.value)}>
                   {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">📥 Donor</span></label>
                 <input
-                  tabIndex={6}
+                  tabIndex={7}
                   className="input input-bordered input-xs w-full bg-white"
                   list="donor-list"
                   placeholder="From (Donor / Source)"
@@ -359,11 +367,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
               </div>
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">💷 Value (£)</span></label>
-                <input tabIndex={7} type="number" className="input input-bordered input-xs w-full bg-white" min={0} step={0.01} placeholder="0.00" value={unitValue || ''} onChange={e => setUnitValue(parseFloat(e.target.value) || 0)} />
-              </div>
-              <div className="form-control">
-                <label className="label py-0"><span className="label-text text-[11px] font-medium">Best Before</span></label>
-                <input tabIndex={8} type="date" className="input input-bordered input-xs w-full bg-white" value={bestBefore} onChange={e => setBestBefore(e.target.value)} />
+                <input tabIndex={8} type="number" className="input input-bordered input-xs w-full bg-white" min={0} step={0.01} placeholder="0.00" value={unitValue || ''} onChange={e => setUnitValue(parseFloat(e.target.value) || 0)} />
               </div>
             </div>
 
