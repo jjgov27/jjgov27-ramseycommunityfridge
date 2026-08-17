@@ -1294,7 +1294,11 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       {/* ===== DONOR REPORT ===== */}
       {reportType === 'donor' && (() => {
         const donorItems = selectedDonor
-          ? filteredInwards.filter(i => (i.donor || '').trim().toLowerCase().includes(selectedDonor.trim().toLowerCase()))
+          ? filteredInwards.filter(i => {
+              const dLow = (i.donor || '').trim().toLowerCase();
+              const sLow = selectedDonor.trim().toLowerCase();
+              return dLow.includes(sLow) || sLow.includes(dLow);
+            })
           : [];
         const sortedDonorItems = [...donorItems].sort((a, b) => {
           const da = parseDateStr(a.date_in)?.getTime() || 0;
