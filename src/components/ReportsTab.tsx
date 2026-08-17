@@ -52,6 +52,11 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
     donorBreakdown: true, categoryBreakdown: true, volunteerActivity: true, pieCharts: true,
   });
 
+  // Category filter state
+  const [catFilterMode, setCatFilterMode] = useState<'include' | 'exclude'>('include');
+  const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
+  const [catFilterOpen, setCatFilterOpen] = useState(false);
+
   const isFullReport = reportType === 'all' || reportType === 'custom' || reportType === 'donor';
 
   // Reconstruct archived data
@@ -120,9 +125,30 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
     });
   };
 
-  const filteredInwards = useMemo(() => filterByDate(allInwards, 'date_in'), [allInwards, storage, startDate, endDate, isFullReport]);
-  const filteredOutwards = useMemo(() => filterByDate(allOutwards, 'date_taken'), [allOutwards, storage, startDate, endDate, isFullReport]);
-  const filteredWastage = useMemo(() => filterByDate(allWastage, 'date_wasted'), [allWastage, storage, startDate, endDate, isFullReport]);
+  const dateFilteredInwards = useMemo(() => filterByDate(allInwards, 'date_in'), [allInwards, storage, startDate, endDate, isFullReport]);
+  const dateFilteredOutwards = useMemo(() => filterByDate(allOutwards, 'date_taken'), [allOutwards, storage, startDate, endDate, isFullReport]);
+  const dateFilteredWastage = useMemo(() => filterByDate(allWastage, 'date_wasted'), [allWastage, storage, startDate, endDate, isFullReport]);
+
+  // All categories present in the date-filtered data
+  const allCategories = useMemo(() => {
+    const cats = new Set<string>();
+    dateFilteredInwards.forEach(i => cats.add(i.category));
+    dateFilteredOutwards.forEach(o => cats.add(o.category));
+    dateFilteredWastage.forEach(w => cats.add(w.category));
+    return [...cats].sort();
+  }, [dateFilteredInwards, dateFilteredOutwards, dateFilteredWastage]);
+
+  // Category filter helper
+  const catPassesFilter = (category: string) => {
+    if (selectedCats.size === 0) return true; // no filter active
+    if (catFilterMode === 'include') return selectedCats.has(category);
+    return !selectedCats.has(category); // exclude mode
+  };
+
+  // Apply category filter on top of date filter
+  const filteredInwards = useMemo(() => dateFilteredInwards.filter(i => catPassesFilter(i.category)), [dateFilteredInwards, selectedCats, catFilterMode]);
+  const filteredOutwards = useMemo(() => dateFilteredOutwards.filter(o => catPassesFilter(o.category)), [dateFilteredOutwards, selectedCats, catFilterMode]);
+  const filteredWastage = useMemo(() => dateFilteredWastage.filter(w => catPassesFilter(w.category)), [dateFilteredWastage, selectedCats, catFilterMode]);
 
   // Build lookup for outwards/wastage linked to inwards (to track time between in and out)
   const inwardLookup = useMemo(() => {
@@ -339,10 +365,86 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
             )}
           </div>
 
-          {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && reportType !== 'donor' && (
-            <button className="btn btn-xs btn-primary gap-1" onClick={downloadCSV}>
-              <Download size={12} /> Download CSV
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && reportType !== 'donor' && (
+              <button className="btn btn-xs btn-primary gap-1" onClick={downloadCSV}>
+                <Download size={12} /> Download CSV
+              </button>
+            )}
+            {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && (
+              <button
+                className={`btn btn-xs gap-1 ${selectedCats.size > 0 ? 'btn-warning' : 'btn-ghost border-violet-300'}`}
+                onClick={() => setCatFilterOpen(!catFilterOpen)}
+              >
+                <Filter size={12} /> Categories {selectedCats.size > 0 ? `(${selectedCats.size} ${catFilterMode === 'include' ? 'included' : 'excluded'})` : ''}
+              </button>
+            )}
+          </div>
+
+          {/* Category filter panel */}
+          {catFilterOpen && reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && (
+            <div className="bg-white border border-violet-200 rounded-lg p-2 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-semibold text-violet-700">Mode:</span>
+                <button
+                  className={`btn btn-xs ${catFilterMode === 'include' ? 'btn-success' : 'btn-ghost border-gray-300'}`}
+                  onClick={() => setCatFilterMode('include')}
+                >✅ Include</button>
+                <button
+                  className={`btn btn-xs ${catFilterMode === 'exclude' ? 'btn-error' : 'btn-ghost border-gray-300'}`}
+                  onClick={() => setCatFilterMode('exclude')}
+                >❌ Exclude</button>
+                <span className="text-xs text-gray-500 italic ml-1">
+                  {catFilterMode === 'include'
+                    ? 'Only ticked categories shown'
+                    : 'Ticked categories hidden'}
+                </span>
+                <button
+                  className="btn btn-xs btn-ghost text-violet-600 ml-auto"
+                  onClick={() => setSelectedCats(new Set(allCategories))}
+                >Select All</button>
+                <button
+                  className="btn btn-xs btn-ghost text-violet-600"
+                  onClick={() => setSelectedCats(new Set())}
+                >Clear All</button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {allCategories.map(cat => {
+                  const colour = (CATEGORY_COLOURS as Record<string, string>)[cat] || '#6b7280';
+                  const isSelected = selectedCats.has(cat);
+                  return (
+                    <label
+                      key={cat}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs cursor-pointer border transition-all ${
+                        isSelected
+                          ? 'bg-opacity-20 border-current font-semibold'
+                          : 'bg-white border-gray-200 text-gray-500'
+                      }`}
+                      style={isSelected ? { color: colour, backgroundColor: colour + '22', borderColor: colour } : {}}
+                    >
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-xs"
+                        checked={isSelected}
+                        onChange={() => {
+                          const next = new Set(selectedCats);
+                          if (next.has(cat)) next.delete(cat); else next.add(cat);
+                          setSelectedCats(next);
+                        }}
+                      />
+                      {cat}
+                    </label>
+                  );
+                })}
+              </div>
+              {selectedCats.size > 0 && (
+                <p className="text-xs text-gray-500">
+                  {catFilterMode === 'include'
+                    ? `Showing: ${[...selectedCats].sort().join(', ')}`
+                    : `Hiding: ${[...selectedCats].sort().join(', ')}`}
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>
