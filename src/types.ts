@@ -68,6 +68,12 @@ export interface Donor {
   name: string;
 }
 
+export interface CustomCategory {
+  id: number;
+  name: string;
+  colour: string;
+}
+
 export interface ArchivedRecord {
   id: string;
   item: string;
@@ -109,6 +115,32 @@ export const CATEGORY_COLOURS: Record<string, string> = {
   'Condiments':  'bg-yellow-100 text-yellow-800 border-yellow-300',
   'Other':       'bg-gray-100 text-gray-800 border-gray-300',
 };
+
+export function getAllCategories(customCats: CustomCategory[]): string[] {
+  const all = new Set([...CATEGORIES, ...customCats.map(c => c.name)]);
+  return [...all].sort();
+}
+
+export function getCategoryColour(cat: string, customCats: CustomCategory[]): string {
+  if (CATEGORY_COLOURS[cat]) return CATEGORY_COLOURS[cat];
+  const custom = customCats.find(c => c.name === cat);
+  // Return tailwind-like classes using a generic approach for custom colours
+  return custom ? `bg-gray-100 border-gray-300` : 'bg-gray-100 text-gray-800 border-gray-300';
+}
+
+export function getCategoryHexColour(cat: string, customCats: CustomCategory[]): string {
+  // Hex colours for pie charts etc
+  const HEX_MAP: Record<string, string> = {
+    'Bakery': '#f59e0b', 'Chilled': '#0ea5e9', 'Condiments': '#eab308',
+    'Dairy': '#3b82f6', 'Drinks': '#06b6d4', 'Dry Goods': '#78716c',
+    'Frozen': '#6366f1', 'Fruit': '#84cc16', 'Meat': '#ef4444',
+    'Produce': '#22c55e', 'Ready Meals': '#f97316', 'Snacks': '#ec4899',
+    'Vegetables': '#10b981', 'Other': '#6b7280'
+  };
+  if (HEX_MAP[cat]) return HEX_MAP[cat];
+  const custom = customCats.find(c => c.name === cat);
+  return custom?.colour || '#6b7280';
+}
 
 export const UNITS = ['items', 'kg', 'litres', 'packs', 'loaves', 'bags', 'boxes', 'tins'] as const;
 

@@ -81,6 +81,10 @@ async function _doInit(): Promise<void> {
       `CREATE TABLE IF NOT EXISTS cf_donors (
         id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE
       )`,
+      `CREATE TABLE IF NOT EXISTS cf_custom_categories (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
+        colour TEXT NOT NULL DEFAULT '#6b7280'
+      )`,
       `CREATE TABLE IF NOT EXISTS cf_archive (
         id TEXT PRIMARY KEY, item TEXT NOT NULL, category TEXT NOT NULL,
         qty_in INTEGER NOT NULL, unit TEXT NOT NULL DEFAULT 'items',
@@ -102,6 +106,12 @@ async function _doInit(): Promise<void> {
     try { await safeSqlExec(`ALTER TABLE cf_inwards ADD COLUMN unit_value REAL NOT NULL DEFAULT 0`); } catch (_) { /* already exists */ }
     try { await safeSqlExec(`ALTER TABLE cf_archive ADD COLUMN unit_value REAL NOT NULL DEFAULT 0`); } catch (_) { /* already exists */ }
   }
+
+  // Migrations that run regardless (for existing databases that skip needsInit)
+  await safeSqlExec(`CREATE TABLE IF NOT EXISTS cf_custom_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
+    colour TEXT NOT NULL DEFAULT '#6b7280'
+  )`);
 }
 
 // ========== ID GENERATION ==========
@@ -477,6 +487,57 @@ export async function importDonors(csv: string): Promise<number> {
     const chunk = items.slice(i, i + BATCH);
     const values = chunk.map(n => `('${esc(n)}')`).join(',\n');
     await safeSqlExec(`INSERT OR IGNORE INTO cf_donors (name) VALUES ${values}`);
+  }
+
+  return items.length;
+}
+
+// ========== CUSTOM CATEGORIES ==========
+
+export async function loadCustomCategories(): Promise<{ id: number; name: string; colour: string }[]> {
+  const rows = await sqlQuery(`SELECT * FROM cf_custom_categories ORDER BY name ASC`);
+  return rows.map((r: Record<string, unknown>) => ({
+    id: r.id as number,
+    name: r.name as string,
+    colour: (r.colour as string) || '#6b7280',
+  }));
+}
+
+export async function addCustomCategory(name: string, colour: string): Promise<void> {
+  const capName = capitalise(name.trim());
+  const col = (colour || '#6b7280').trim();
+  if (!capName) return;
+  await safeSqlExec(`INSERT OR IGNORE INTO cf_custom_categories (name, colour) VALUES ('${esc(capName)}', '${esc(col)}')`);
+}
+
+export async function deleteCustomCategory(id: number): Promise<void> {
+  await safeSqlExec(`DELETE FROM cf_custom_categories WHERE id = ${id}`);
+}
+
+export async function importCustomCategories(csv: string): Promise<number> {
+  const lines = csv.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return 0;
+
+  const firstLine = lines[0].toLowerCase();
+  const hasHeader = firstLine.includes('name') || firstLine.includes('colour') || firstLine.includes('color');
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  const items: { name: string; colour: string }[] = [];
+  for (const line of dataLines) {
+    const parts = line.match(/(\".*?\"|[^,]+)/g)?.map(p => p.replace(/^"|"$/g, '').trim()) || [];
+    if (parts.length === 0 || !parts[0]) continue;
+    items.push({ name: capitalise(parts[0]), colour: parts[1] ? parts[1].trim() : '#6b7280' });
+  }
+
+  if (items.length === 0) return 0;
+
+  await safeSqlExec(`DELETE FROM cf_custom_categories`);
+
+  const BATCH = 20;
+  for (let i = 0; i < items.length; i += BATCH) {
+    const chunk = items.slice(i, i + BATCH);
+    const values = chunk.map(it => `('${esc(it.name)}', '${esc(it.colour)}')`).join(', ');
+    await safeSqlExec(`INSERT OR IGNORE INTO cf_custom_categories (name, colour) VALUES ${values}`);
   }
 
   return items.length;

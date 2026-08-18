@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LayoutDashboard, ArrowDownToLine, ArrowUpFromLine, Trash2, ListPlus, FileBarChart, Archive, Shield, RefreshCw, User } from 'lucide-react';
-import { TabName, StorageLocation, InwardItem, OutwardEntry, WastageEntry, CustomItem, ArchivedRecord, Volunteer, Donor } from './types';
+import { TabName, StorageLocation, InwardItem, OutwardEntry, WastageEntry, CustomItem, ArchivedRecord, Volunteer, Donor, CustomCategory } from './types';
 import {
   initDB, addInward, loadInwards, addOutward, loadOutwards, addWastage, loadWastage,
   deleteOutward, deleteWastage, deleteInward, loadCustomItems, addCustomItem, deleteCustomItem,
@@ -9,7 +9,8 @@ import {
   clearAllData, clearArchive, clearEverything, importInwardsFromCSV, importOutwardsFromCSV, importWastageFromCSV, importCustomItems,
   loadVolunteers, addVolunteer, deleteVolunteer, importVolunteers, bulkInwardsToOutwards,
   loadDonors, addDonor, deleteDonor, importDonors, moveInwardItem, quickTakeAllAvailable,
-  updateInward, updateOutward, bulkAddInwards, updateCustomItemCategory
+  updateInward, updateOutward, bulkAddInwards, updateCustomItemCategory,
+  loadCustomCategories, addCustomCategory, deleteCustomCategory, importCustomCategories
 } from './utils/db';
 import { Dashboard } from './components/Dashboard';
 import { InwardsTab } from './components/InwardsTab';
@@ -21,7 +22,7 @@ import { HistoryTab } from './components/HistoryTab';
 import { AdminTab } from './components/AdminTab';
 
 // Module-level first-load cache — survives React strict mode remounts
-let _firstLoadPromise: Promise<{inv: any; out: any; wst: any; ci: any; arch: any; vols: any; dnrs: any}> | null = null;
+let _firstLoadPromise: Promise<{inv: any; out: any; wst: any; ci: any; arch: any; vols: any; dnrs: any; cats: any}> | null = null;
 function firstLoad() {
   if (!_firstLoadPromise) {
     _firstLoadPromise = initDB().then(async () => {
@@ -33,7 +34,8 @@ function firstLoad() {
       const arch = await loadArchive();
       const vols = await loadVolunteers();
       const dnrs = await loadDonors();
-      return { inv, out, wst, ci, arch, vols, dnrs };
+      const cats = await loadCustomCategories();
+      return { inv, out, wst, ci, arch, vols, dnrs, cats };
     });
   }
   return _firstLoadPromise;
@@ -60,6 +62,7 @@ const App: React.FC = () => {
   const [archive, setArchive] = useState<ArchivedRecord[]>([]);
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [donors, setDonors] = useState<Donor[]>([]);
+  const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [archiveMsg, setArchiveMsg] = useState<string | null>(null);
@@ -83,6 +86,7 @@ const App: React.FC = () => {
     const arch = await loadArchive(); setArchive(arch);
     const vols = await loadVolunteers(); setVolunteers(vols);
     const dnrs = await loadDonors(); setDonors(dnrs);
+    const cats = await loadCustomCategories(); setCustomCategories(cats);
   }, []);
 
   // Targeted refresh functions — only reload the table(s) affected by an action
@@ -93,11 +97,12 @@ const App: React.FC = () => {
   const refreshVolunteers = useCallback(async () => { setVolunteers(await loadVolunteers()); }, []);
   const refreshDonors = useCallback(async () => { setDonors(await loadDonors()); }, []);
   const refreshArchive = useCallback(async () => { setArchive(await loadArchive()); }, []);
+  const refreshCategories = useCallback(async () => { setCustomCategories(await loadCustomCategories()); }, []);
 
   useEffect(() => {
-    firstLoad().then(({ inv, out, wst, ci, arch, vols, dnrs }) => {
+    firstLoad().then(({ inv, out, wst, ci, arch, vols, dnrs, cats }) => {
       setInwards(inv); setOutwards(out); setWastage(wst); setCustomItems(ci);
-      setArchive(arch); setVolunteers(vols); setDonors(dnrs);
+      setArchive(arch); setVolunteers(vols); setDonors(dnrs); setCustomCategories(cats);
       setLoading(false);
     });
   }, []);
@@ -401,6 +406,7 @@ const App: React.FC = () => {
             activeVolunteer={activeVolunteer} volunteers={volunteers}
             donors={donors}
             onRefreshItems={refreshItems}
+            customCategories={customCategories}
           />
         )}
         {tab === 'outwards' && (
@@ -455,6 +461,20 @@ const App: React.FC = () => {
             onImportDonors={async (csv: string) => {
               const count = await importDonors(csv);
               await refreshDonors();
+              return count;
+            }}
+            customCategories={customCategories}
+            onAddCategory={async (name: string, colour: string) => {
+              await addCustomCategory(name, colour);
+              await refreshCategories();
+            }}
+            onDeleteCategory={async (id: number) => {
+              await deleteCustomCategory(id);
+              await refreshCategories();
+            }}
+            onImportCategories={async (csv: string) => {
+              const count = await importCustomCategories(csv);
+              await refreshCategories();
               return count;
             }}
           />

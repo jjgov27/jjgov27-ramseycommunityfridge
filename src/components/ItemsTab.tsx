@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { CustomItem, Volunteer, Donor, CATEGORIES, REFERENCE_ITEMS, CATEGORY_COLOURS } from '../types';
-import { Plus, Trash2, Search, Upload, FileDown, AlertTriangle, Users, User, Store } from 'lucide-react';
+import { CustomItem, Volunteer, Donor, CATEGORIES, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomCategory, getAllCategories } from '../types';
+import { Plus, Trash2, Search, Upload, FileDown, AlertTriangle, Users, User, Store, Lock, Palette } from 'lucide-react';
 
 interface ItemsTabProps {
   customItems: CustomItem[];
@@ -15,12 +15,23 @@ interface ItemsTabProps {
   onAddDonor: (name: string) => void;
   onDeleteDonor: (id: number) => void;
   onImportDonors: (csv: string) => Promise<number>;
+  customCategories: CustomCategory[];
+  onAddCategory: (name: string, colour: string) => void;
+  onDeleteCategory: (id: number) => void;
+  onImportCategories: (csv: string) => Promise<number>;
 }
+
+const CATEGORY_PALETTE = [
+  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16',
+  '#22c55e', '#10b981', '#06b6d4', '#3b82f6', '#6366f1',
+  '#8b5cf6', '#ec4899', '#78716c', '#6b7280',
+];
 
 export const ItemsTab: React.FC<ItemsTabProps> = ({
   customItems, onAdd, onDelete, onImportItems,
   volunteers, onAddVolunteer, onDeleteVolunteer, onImportVolunteers,
   donors, onAddDonor, onDeleteDonor, onImportDonors,
+  customCategories, onAddCategory, onDeleteCategory, onImportCategories,
 }) => {
   // Items state
   const [name, setName] = useState('');
@@ -55,8 +66,19 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
   const [donorConfirmReplace, setDonorConfirmReplace] = useState(false);
   const donorFileRef = useRef<HTMLInputElement>(null);
 
+  // Categories state
+  const [catName, setCatName] = useState('');
+  const [catColour, setCatColour] = useState('#6b7280');
+  const [catSearch, setCatSearch] = useState('');
+  const [showCatImport, setShowCatImport] = useState(false);
+  const [catImportText, setCatImportText] = useState('');
+  const [catImporting, setCatImporting] = useState(false);
+  const [catImportMsg, setCatImportMsg] = useState<string | null>(null);
+  const [catConfirmReplace, setCatConfirmReplace] = useState(false);
+  const catFileRef = useRef<HTMLInputElement>(null);
+
   // Section toggle
-  const [section, setSection] = useState<'items' | 'volunteers' | 'donors'>('items');
+  const [section, setSection] = useState<'items' | 'volunteers' | 'donors' | 'categories'>('items');
 
   // Items handlers
   const handleAdd = () => {
@@ -170,6 +192,44 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
     URL.revokeObjectURL(url);
   };
 
+  // Category handlers
+  const handleAddCategory = () => {
+    if (!catName.trim()) return;
+    onAddCategory(catName.trim(), catColour);
+    setCatName('');
+    setCatColour('#6b7280');
+  };
+
+  const handleCategoryFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => { setCatImportText(ev.target?.result as string || ''); setCatConfirmReplace(false); };
+    reader.readAsText(file);
+    if (catFileRef.current) catFileRef.current.value = '';
+  };
+
+  const handleCategoryImport = async () => {
+    if (!catConfirmReplace) { setCatConfirmReplace(true); return; }
+    setCatImporting(true);
+    try {
+      const count = await onImportCategories(catImportText);
+      setCatImportMsg(`✅ Imported ${count} categories (existing custom categories replaced)`);
+      setCatImportText(''); setShowCatImport(false); setCatConfirmReplace(false);
+    } catch (err) { setCatImportMsg(`❌ Import failed: ${String(err)}`); }
+    setCatImporting(false);
+    setTimeout(() => setCatImportMsg(null), 4000);
+  };
+
+  const handleCategoryExport = () => {
+    const csvLines = ['Name,Colour'];
+    customCategories.forEach(c => csvLines.push(`"${c.name}","${c.colour}"`));
+    const blob = new Blob([csvLines.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'categories.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // Preview helpers
   const previewItems = importText ? (() => {
     const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
@@ -236,6 +296,34 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
     !donorSearch || d.name.toLowerCase().includes(donorSearch.toLowerCase())
   );
 
+  const previewCats = catImportText ? (() => {
+    const lines = catImportText.split('\n').map(l => l.trim()).filter(Boolean);
+    const firstLine = lines[0]?.toLowerCase() || '';
+    const hasHeader = firstLine.includes('name') || firstLine.includes('colour') || firstLine.includes('color');
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    return dataLines.slice(0, 10).map(line => {
+      const parts = line.match(/(\".*?\"|[^,]+)/g)?.map(p => p.replace(/^"|"$/g, '').trim()) || [];
+      return { name: parts[0] || '', colour: parts[1] || '#6b7280' };
+    });
+  })() : [];
+
+  const totalCatImportLines = catImportText ? (() => {
+    const lines = catImportText.split('\n').map(l => l.trim()).filter(Boolean);
+    const firstLine = lines[0]?.toLowerCase() || '';
+    const hasHeader = firstLine.includes('name') || firstLine.includes('colour') || firstLine.includes('color');
+    return hasHeader ? lines.length - 1 : lines.length;
+  })() : 0;
+
+  const filteredDefaultCats = CATEGORIES.filter(c =>
+    !catSearch || c.toLowerCase().includes(catSearch.toLowerCase())
+  );
+
+  const filteredCustomCats = customCategories.filter(c =>
+    !catSearch || c.name.toLowerCase().includes(catSearch.toLowerCase())
+  );
+
+  const allCategoriesForItemForm = getAllCategories(customCategories);
+
   return (
     <div className="space-y-3">
       {/* Header */}
@@ -263,6 +351,12 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
           onClick={() => setSection('donors')}
         >
           <Store size={12} /> Donors ({donors.length})
+        </button>
+        <button
+          className={`flex-1 py-2.5 text-xs font-bold transition-all flex items-center justify-center gap-1 ${section === 'categories' ? 'bg-purple-500 text-white' : 'bg-base-100 text-base-content/60 hover:bg-base-200'}`}
+          onClick={() => setSection('categories')}
+        >
+          📁 Categories ({CATEGORIES.length + customCategories.length})
         </button>
       </div>
 
@@ -333,7 +427,7 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
             <div className="form-control">
               <label className="label py-0.5"><span className="label-text text-xs font-medium">Category</span></label>
               <select className="select select-bordered select-sm w-full bg-white" value={category} onChange={e => setCategory(e.target.value)}>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                {allCategoriesForItemForm.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <button className="btn btn-sm w-full bg-violet-500 hover:bg-violet-600 border-violet-600 text-white" onClick={handleAdd} disabled={!name.trim()}>
@@ -587,6 +681,134 @@ export const ItemsTab: React.FC<ItemsTabProps> = ({
                     <span className="font-medium text-sm">{d.name}</span>
                   </div>
                   <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDeleteDonor(d.id)}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============ CATEGORIES SECTION ============ */}
+      {section === 'categories' && (
+        <div className="space-y-3">
+          {catImportMsg && (
+            <div className={`px-3 py-2 text-xs text-center font-medium rounded-lg ${catImportMsg.startsWith('✅') ? 'bg-success/10 text-success' : 'bg-error/10 text-error'}`}>
+              {catImportMsg}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button className="btn btn-sm flex-1 bg-purple-500 hover:bg-purple-600 border-purple-600 text-white" onClick={() => setShowCatImport(!showCatImport)}>
+              <Upload size={14} /> Import Categories
+            </button>
+            {customCategories.length > 0 && (
+              <button className="btn btn-sm btn-outline border-purple-300 text-purple-600 hover:bg-purple-50" onClick={handleCategoryExport}>
+                <FileDown size={14} /> Export
+              </button>
+            )}
+          </div>
+
+          {showCatImport && (
+            <div className="rounded-xl border-2 border-amber-200 bg-amber-50/50 p-4 space-y-3">
+              <h3 className="font-bold text-sm">📥 Import Categories from CSV</h3>
+              <p className="text-xs text-base-content/60">
+                Format: <code className="bg-base-200 px-1 rounded">Name, Colour</code> (one per line, colour as hex e.g. #22c55e).
+              </p>
+              <div className="bg-base-200 rounded-lg p-2 text-xs font-mono">
+                <div className="text-base-content/40 mb-1">Example:</div>
+                <div>Household, #a855f7</div>
+                <div>Pet Food, #78350f</div>
+              </div>
+              <input ref={catFileRef} type="file" accept=".csv,.txt" className="file-input file-input-bordered file-input-sm w-full" onChange={handleCategoryFileUpload} />
+              <textarea className="textarea textarea-bordered w-full text-xs font-mono h-28" placeholder="Or paste categories here — one per line: Name, Colour" value={catImportText} onChange={e => { setCatImportText(e.target.value); setCatConfirmReplace(false); }} />
+              {previewCats.length > 0 && (
+                <div className="bg-white rounded-lg border p-2 space-y-1">
+                  <div className="text-xs font-bold text-purple-600">Preview ({totalCatImportLines} categor{totalCatImportLines !== 1 ? 'ies' : 'y'}{totalCatImportLines > 10 ? ', showing first 10' : ''}):</div>
+                  {previewCats.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className="w-3 h-3 rounded-full border border-base-300" style={{ backgroundColor: c.colour }} />
+                      <span className="font-medium">{c.name.replace(/\b\w/g, ch => ch.toUpperCase())}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {customCategories.length > 0 && (
+                <div className="flex items-start gap-2 p-2 rounded-lg bg-warning/10 border border-warning/30">
+                  <AlertTriangle size={14} className="text-warning mt-0.5 flex-shrink-0" />
+                  <span className="text-xs text-warning">This will <strong>replace all {customCategories.length} existing custom categories</strong> with the imported list. Default categories are unaffected.</span>
+                </div>
+              )}
+              <button className={`btn btn-sm w-full ${catConfirmReplace ? 'bg-red-500 hover:bg-red-600 border-red-600' : 'bg-purple-500 hover:bg-purple-600 border-purple-600'} text-white`} onClick={handleCategoryImport} disabled={!catImportText.trim() || catImporting}>
+                {catImporting ? (<><span className="loading loading-spinner loading-xs" /> Importing...</>) : catConfirmReplace ? (<>⚠️ Click Again to Confirm Replace</>) : (<><Upload size={14} /> Import & Replace Custom Categories</>)}
+              </button>
+              <button className="btn btn-ghost btn-xs w-full" onClick={() => { setShowCatImport(false); setCatImportText(''); setCatConfirmReplace(false); }}>Cancel</button>
+            </div>
+          )}
+
+          <div className="rounded-xl border-2 border-purple-200 bg-purple-50/50 p-4 space-y-3">
+            <h3 className="font-bold text-sm flex items-center gap-1.5"><Palette size={14} /> Add Category</h3>
+            <div className="form-control">
+              <label className="label py-0.5"><span className="label-text text-xs font-medium">Category Name *</span></label>
+              <input className="input input-bordered input-sm w-full bg-white" placeholder="e.g. Household, Pet Food, Toiletries..." value={catName} onChange={e => setCatName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAddCategory(); }} />
+            </div>
+            <div className="form-control">
+              <label className="label py-0.5"><span className="label-text text-xs font-medium">Colour</span></label>
+              <div className="flex items-center gap-2">
+                <input type="color" className="w-10 h-8 rounded border border-base-300 cursor-pointer" value={catColour} onChange={e => setCatColour(e.target.value)} />
+                <input className="input input-bordered input-sm flex-1 bg-white font-mono" value={catColour} onChange={e => setCatColour(e.target.value)} />
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {CATEGORY_PALETTE.map(hex => (
+                  <button
+                    key={hex}
+                    type="button"
+                    className={`w-6 h-6 rounded-full border-2 ${catColour === hex ? 'border-purple-600 scale-110' : 'border-base-300'} transition-transform`}
+                    style={{ backgroundColor: hex }}
+                    onClick={() => setCatColour(hex)}
+                    title={hex}
+                  />
+                ))}
+              </div>
+            </div>
+            <button className="btn btn-sm w-full bg-purple-500 hover:bg-purple-600 border-purple-600 text-white" onClick={handleAddCategory} disabled={!catName.trim()}>
+              <Plus size={16} /> Add Category
+            </button>
+          </div>
+
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40" />
+            <input className="input input-bordered input-sm w-full pl-8" placeholder="Search categories..." value={catSearch} onChange={e => setCatSearch(e.target.value)} />
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-[10px] font-bold text-base-content/40 uppercase tracking-wider px-1">Default Categories (locked)</div>
+            {filteredDefaultCats.map(c => {
+              const catColourCls = CATEGORY_COLOURS[c] || CATEGORY_COLOURS['Other'];
+              return (
+                <div key={c} className="flex items-center justify-between py-2 px-3 rounded-lg border-b border-base-200 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full border ${catColourCls}`}>{c}</span>
+                  </div>
+                  <span title="Default category — cannot be deleted"><Lock size={13} className="text-base-content/30" /></span>
+                </div>
+              );
+            })}
+
+            <div className="text-[10px] font-bold text-base-content/40 uppercase tracking-wider px-1 pt-2">Custom Categories ({filteredCustomCats.length})</div>
+            {filteredCustomCats.length === 0 ? (
+              <div className="text-center text-base-content/60 py-4 text-sm">
+                No custom categories yet. Add one above or import a list!
+              </div>
+            ) : (
+              filteredCustomCats.map(c => (
+                <div key={c.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-base-200 transition-colors border-b border-base-200 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded-full border border-base-300" style={{ backgroundColor: c.colour }} />
+                    <span className="font-medium text-sm">{c.name}</span>
+                  </div>
+                  <button className="btn btn-ghost btn-xs text-red-400 hover:text-red-600" onClick={() => onDeleteCategory(c.id)}>
                     <Trash2 size={14} />
                   </button>
                 </div>
