@@ -143,8 +143,7 @@ const parseTescoText = (raw: string): ImportItem[] => {
     if (m1) {
       // Clean product name: remove trailing ", SubCategory" like ", Fruit and Veg" or ", Bakery" or ", Chilled" etc.
       let name = m1[1].trim().replace(/,\s*(Fruit and Veg|Bakery|Chilled|Non Food|Frozen|Ambient)\s*$/i, '').trim();
-      // Remove "Tesco " prefix for cleaner names (keep brand names like Warburtons)
-      name = name.replace(/^Tesco\s+/i, '');
+      // Keep full product names including "Tesco" prefix
       items.push({
         id: id++, item: cap(name), category: mapCategory(m1[2].trim()),
         qty: parseInt(m1[3]), unit: 'items', weight: parseFloat(m1[4]),
@@ -233,7 +232,8 @@ export const ImportInwards: React.FC<Props> = ({ onBulkAdd, activeVolunteer, isF
         setError('No items found — try pasting the text instead.');
         setMode('paste'); setParsing(false); return;
       }
-      setItems(applyFuzzyMatch(parsed));
+      // Tesco email items keep their full product names — skip fuzzy matching
+      setItems(parsed.map(it => ({ ...it, matched: false })));
       setDonor('Tesco');
       setImportDate(extractCollectionDate(text));
       setSourceType('tesco');
@@ -251,7 +251,8 @@ export const ImportInwards: React.FC<Props> = ({ onBulkAdd, activeVolunteer, isF
     if (!pasteText.trim()) return;
     const parsed = parseTescoText(pasteText);
     if (parsed.length === 0) { setError('No items found in pasted text.'); return; }
-    setItems(applyFuzzyMatch(parsed));
+    // Tesco email items keep their full product names — skip fuzzy matching
+    setItems(parsed.map(it => ({ ...it, matched: false })));
     setDonor('Tesco');
     setImportDate(extractCollectionDate(pasteText));
     setSourceType('tesco');
