@@ -484,7 +484,7 @@ const App: React.FC = () => {
             inwards={inwards} wastage={wastage} outwards={outwards}
             storage={storage} onStorageChange={setStorage}
             archive={archive} customItems={customItems}
-            donors={donors}
+            donors={donors} customCategories={customCategories}
           />
         )}
         {tab === 'history' && (
