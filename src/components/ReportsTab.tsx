@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { FileBarChart, Download, Calendar, Filter, TrendingUp, AlertTriangle, PackagePlus, Users, ListPlus, Database } from 'lucide-react';
-import { WastageEntry, InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS, CustomItem, ArchivedRecord, Donor } from '../types';
+import { WastageEntry, InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS, CustomItem, ArchivedRecord, Donor, CustomCategory, getAllCategories, getCategoryHexColour } from '../types';
 
 interface Props {
   inwards: InwardItem[];
@@ -11,6 +11,7 @@ interface Props {
   archive: ArchivedRecord[];
   customItems: CustomItem[];
   donors: Donor[];
+  customCategories: CustomCategory[];
 }
 
 const parseDateStr = (d: string): Date | null => {
@@ -32,7 +33,7 @@ const toISODate = (d: Date) => d.toISOString().split('T')[0];
 const kgToLbs = (kg: number) => (kg * 2.20462).toFixed(1);
 const isMeat = (category: string) => category === 'Meat';
 
-export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storage, onStorageChange, archive, customItems, donors }) => {
+export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storage, onStorageChange, archive, customItems, donors, customCategories }) => {
   const today = new Date();
   const thirtyDaysAgo = new Date(today);
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -129,14 +130,14 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   const dateFilteredOutwards = useMemo(() => filterByDate(allOutwards, 'date_taken'), [allOutwards, storage, startDate, endDate, isFullReport]);
   const dateFilteredWastage = useMemo(() => filterByDate(allWastage, 'date_wasted'), [allWastage, storage, startDate, endDate, isFullReport]);
 
-  // All categories present in the date-filtered data
+  // All known categories plus those present in the date-filtered data
   const allCategories = useMemo(() => {
-    const cats = new Set<string>();
+    const cats = new Set<string>(getAllCategories(customCategories));
     dateFilteredInwards.forEach(i => cats.add(i.category));
     dateFilteredOutwards.forEach(o => cats.add(o.category));
     dateFilteredWastage.forEach(w => cats.add(w.category));
     return [...cats].sort();
-  }, [dateFilteredInwards, dateFilteredOutwards, dateFilteredWastage]);
+  }, [dateFilteredInwards, dateFilteredOutwards, dateFilteredWastage, customCategories]);
 
   // Category filter helper
   const catPassesFilter = (category: string) => {
@@ -410,7 +411,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               </div>
               <div className="flex flex-wrap gap-1">
                 {allCategories.map(cat => {
-                  const colour = (CATEGORY_COLOURS as Record<string, string>)[cat] || '#6b7280';
+                  const colour = getCategoryHexColour(cat, customCategories);
                   const isSelected = selectedCats.has(cat);
                   return (
                     <label

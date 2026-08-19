@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem, Volunteer, Donor } from '../types';
+import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem, Volunteer, Donor, CustomCategory, getAllCategories } from '../types';
 import { Plus, Trash2, ChevronUp, ChevronDown, Snowflake, ThermometerSun, ArrowRightLeft, Pencil, Check, X } from 'lucide-react';
 import { ImportInwards } from './ImportInwards';
 
@@ -13,7 +13,8 @@ const SingleItemCard: React.FC<{
   editEnteredBy: string; setEditEnteredBy: (v: string) => void; saveEdit: () => void;
   setEditingId: (id: string | null) => void; startEdit: (i: InwardItem) => void;
   onMove: (id: string, s: StorageLocation) => void; onDelete: (id: string) => void; compact?: boolean;
-}> = ({ i, editingId, editItem, setEditItem, editCategory, setEditCategory, editQty, setEditQty, editDonor, setEditDonor, editBestBefore, setEditBestBefore, editEnteredBy, setEditEnteredBy, saveEdit, setEditingId, startEdit, onMove, onDelete, compact }) => {
+  allCategories?: string[];
+}> = ({ i, editingId, editItem, setEditItem, editCategory, setEditCategory, editQty, setEditQty, editDonor, setEditDonor, editBestBefore, setEditBestBefore, editEnteredBy, setEditEnteredBy, saveEdit, setEditingId, startEdit, onMove, onDelete, compact, allCategories }) => {
   const catColour = CATEGORY_COLOURS[i.category] || CATEGORY_COLOURS['Other'];
   const statusColour = i.status === 'available'
     ? 'border-l-emerald-500 bg-gradient-to-r from-emerald-50/50 to-transparent'
@@ -35,7 +36,7 @@ const SingleItemCard: React.FC<{
               <input className="input input-bordered input-xs w-full" value={editItem} onChange={e => setEditItem(e.target.value)} /></div>
             <div><label className="text-[10px] text-base-content/50 font-medium">Category</label>
               <select className="select select-bordered select-xs w-full" value={editCategory} onChange={e => setEditCategory(e.target.value)}>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                {(allCategories || CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
               </select></div>
             <div><label className="text-[10px] text-base-content/50 font-medium">Quantity</label>
               <input type="number" className="input input-bordered input-xs w-full" min={1} value={editQty} onChange={e => setEditQty(Number(e.target.value))} /></div>
@@ -131,9 +132,11 @@ interface InwardsTabProps {
   volunteers: Volunteer[];
   donors: Donor[];
   onRefreshItems?: () => void;  // called after import auto-creates new items
+  customCategories: CustomCategory[];
 }
 
-export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, onEdit, onBulkAdd, activeVolunteer, volunteers, donors, onRefreshItems }) => {
+export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, onEdit, onBulkAdd, activeVolunteer, volunteers, donors, onRefreshItems, customCategories }) => {
+  const allCategories = getAllCategories(customCategories);
   const [showForm, setShowForm] = useState(false);
   const [item, setItem] = useState('');
   const [category, setCategory] = useState('');
@@ -326,7 +329,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">Category</span></label>
                 <select tabIndex={3} className="select select-bordered select-xs w-full bg-white" value={category} onChange={e => handleCategoryChange(e.target.value)}>
                   <option value="">Select...</option>
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div className="form-control">
@@ -434,7 +437,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
             // Single-item groups render normally (no grouping header)
             if (group.items.length === 1) {
               const i = group.items[0];
-              return <SingleItemCard key={i.id} i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} />;
+              return <SingleItemCard key={i.id} i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} allCategories={allCategories} />;
             }
 
             // Multi-item group — consolidated card
@@ -508,7 +511,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                     <div className="px-3 py-1.5 text-[10px] font-bold text-base-content/40 uppercase tracking-wider">Individual Entries</div>
                     {group.items.map(i => (
                       <div key={i.id} className="border-t border-base-200 px-3 py-2">
-                        <SingleItemCard i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} compact />
+                        <SingleItemCard i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} compact allCategories={allCategories} />
                       </div>
                     ))}
                   </div>
