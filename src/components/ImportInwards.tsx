@@ -42,10 +42,17 @@ const fuzzyMatch = (imported: string, existingItems: string[], threshold = 0.35)
   // Exact match (case-insensitive)
   const exact = existingItems.find(e => e.toLowerCase() === lower);
   if (exact) return { name: exact, matched: true };
-  // Contains match — existing item contains imported or vice versa
-  const contains = existingItems.find(e =>
-    e.toLowerCase().includes(lower) || lower.includes(e.toLowerCase())
-  );
+  // Contains match — only when the names are similarly sized, so a broad
+  // item such as "Butter" does not replace "All Butter Almond Croissant".
+  const contains = existingItems.find(e => {
+    const eLower = e.toLowerCase();
+    if (eLower.includes(lower) || lower.includes(eLower)) {
+      const shorter = Math.min(eLower.length, lower.length);
+      const longer = Math.max(eLower.length, lower.length);
+      return shorter / longer >= 0.7;
+    }
+    return false;
+  });
   if (contains) return { name: contains, matched: true };
   // Levenshtein distance — match if distance is within threshold of the longer string
   let bestMatch = '';
@@ -70,7 +77,6 @@ const TESCO_CAT: Record<string, string> = {
   'bread and bread products': 'Bakery',
   'bakery': 'Bakery',
   'chilled products with dairy and eggs': 'Dairy',
-  'chilled products': 'Dairy',
   'dairy': 'Dairy',
   'fresh meat': 'Meat',
   'meat': 'Meat',
@@ -81,11 +87,16 @@ const TESCO_CAT: Record<string, string> = {
   'ready meals': 'Ready Meals',
   'snacks': 'Snacks',
   'condiments': 'Condiments',
+  'chilled products': 'Dairy',
 };
 
 const mapCategory = (src: string): string => {
   const lower = src.toLowerCase().trim();
-  for (const [key, val] of Object.entries(TESCO_CAT)) {
+  // Try exact match first
+  if (TESCO_CAT[lower]) return TESCO_CAT[lower];
+  // Then try contains — longest key first so specific matches win over generic ones
+  const sorted = Object.entries(TESCO_CAT).sort((a, b) => b[0].length - a[0].length);
+  for (const [key, val] of sorted) {
     if (lower.includes(key) || key.includes(lower)) return val;
   }
   return 'Other';
@@ -134,25 +145,67 @@ const extractPdfText = async (file: File): Promise<string> => {
 const parseTescoText = (raw: string): ImportItem[] => {
   const items: ImportItem[] = [];
   let id = 0;
-  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Clean up common artefacts from pasting
+  let cleaned = raw
+    .replace(/\[hardBreak\]/gi, ' ')
+    .replace(/^\||\|$/gm, '')           // markdown table pipes
+    .replace(/\s+/g, ' ');              // collapse all whitespace to single spaces
+
+  // Strip the header/summary section — everything before "TOTAL PRODUCT PRICE"
+  cleaned = cleaned.replace(/^[\s\S]*?\*{0,2}TOTAL PRODUCT PRICE\*{0,2}\s*/i, '');
+  // Also strip the footer (Additional information onwards)
+  cleaned = cleaned.replace(/Additional\s+information\s+Donation\s+reference.*$/i, '');
+
+  // Strategy: use a global regex to find every product entry in the text,
+  // anchored on the barcode (10-13 digit number). This works whether the text
+  // has line breaks or is one continuous blob.
+  //
+  // Format: ProductName, SubCategory BARCODE FullCategory QTY WEIGHT Kg GBP VALUE
+  // Then optionally followed by Stock-code / Allergen-info before the next product.
+
+  // Primary pattern: product name followed by comma + sub-category + barcode
+  const primaryRe = /([A-Z][^,]{2,}?),\s*(?:Fruit and Veg|Bakery|Chilled|Non Food|Frozen|Ambient)\s+(\d{7,})\s+([\w\s]+?)\s+(\d+)\s+([\d.]+)\s*Kg\s+GBP\s+([\d.]+)/gi;
+  let match;
+  while ((match = primaryRe.exec(cleaned)) !== null) {
+    let name = match[1].trim();
+    // Remove any trailing Stock-code / Allergen junk from previous product that got merged
+    name = name.replace(/Stock-code\s*:.*$/i, '').replace(/Allergen-info\s*:.*$/i, '').trim();
+    // Also remove any leading junk that's not part of the product name
+    // (category summary text, numbers from previous row, etc.)
+    const lastSentenceStart = name.search(/(?:^|[,.]\s+)([A-Z][a-z])/);
+    if (lastSentenceStart > 0 && name.length > 60) {
+      // There's junk before the real product name — extract from last capital-letter start
+      const cleanStart = name.lastIndexOf(', ');
+      if (cleanStart > 0) name = name.substring(cleanStart + 2);
+    }
+    items.push({
+      id: id++, item: cap(name), category: mapCategory(match[3].trim()),
+      qty: parseInt(match[4]), unit: 'items', weight: parseFloat(match[5]),
+      value: parseFloat(match[6]), storage: 'fridge', selected: true, bestBefore: '',
+    });
+  }
+
+  // If primary found items, return them
+  if (items.length > 0) return items;
+
+  // Fallback: line-by-line parsing for other formats
+  const lines = cleaned.replace(/Stock-code\s*:\s*[\w]+,?\s*/gi, '\n')
+    .replace(/Allergen-info\s*:\s*https?:\/\/[^\s,]+,?\s*/gi, '\n')
+    .split(/\n/).map(l => l.trim()).filter(Boolean);
 
   for (const line of lines) {
-    // Format 1 (email): "ProductName, SubCat  BARCODE  Category  QTY  WEIGHT Kg  GBP PRICE"
-    // Match lines that contain a barcode (long number) followed by category, qty, weight, price
-    const m1 = line.match(/^(.+?)\s+\d{6,}\s+(.+?)\s+(\d+)\s+([\d.]+)\s*Kg\s+GBP\s+([\d.]+)/i);
-    if (m1) {
-      // Clean product name: remove trailing ", SubCategory" like ", Fruit and Veg" or ", Bakery" or ", Chilled" etc.
-      let name = m1[1].trim().replace(/,\s*(Fruit and Veg|Bakery|Chilled|Non Food|Frozen|Ambient)\s*$/i, '').trim();
-      // Keep full product names including "Tesco" prefix
+    const fb = line.match(/^(.+?)\s+\d{6,}\s+(.+?)\s+(\d+)\s+([\d.]+)\s*Kg\s+GBP\s+([\d.]+)/i);
+    if (fb) {
+      let name = fb[1].trim().replace(/,\s*(Fruit and Veg|Bakery|Chilled|Non Food|Frozen|Ambient)\s*$/i, '').trim();
       items.push({
-        id: id++, item: cap(name), category: mapCategory(m1[2].trim()),
-        qty: parseInt(m1[3]), unit: 'items', weight: parseFloat(m1[4]),
-        value: parseFloat(m1[5]), storage: 'fridge', selected: true, bestBefore: '',
+        id: id++, item: cap(name), category: mapCategory(fb[2].trim()),
+        qty: parseInt(fb[3]), unit: 'items', weight: parseFloat(fb[4]),
+        value: parseFloat(fb[5]), storage: 'fridge', selected: true, bestBefore: '',
       });
       continue;
     }
-
-    // Format 2 (old PDF text): "Quantity: N Product: NAME Weight: X kg Value: £Y"
+    // Old PDF text format
     const m2 = line.match(/Quantity:\s*(\d+)\s*Product:\s*(.+?)\s*Weight:\s*([\d.]+)\s*kg\s*Value:\s*£([\d.]+)/i);
     if (m2) {
       items.push({
@@ -160,7 +213,6 @@ const parseTescoText = (raw: string): ImportItem[] => {
         qty: parseInt(m2[1]), unit: 'items', weight: parseFloat(m2[3]),
         value: parseFloat(m2[4]), storage: 'fridge', selected: true, bestBefore: '',
       });
-      continue;
     }
   }
   return items;
@@ -206,6 +258,17 @@ export const ImportInwards: React.FC<Props> = ({ onBulkAdd, activeVolunteer, isF
       const category = matched && itemCategories[name] ? itemCategories[name] : it.category;
       return { ...it, item: name, category, originalItem: changed || !matched ? it.item : undefined, matched };
     });
+
+  /* For Tesco imports: skip fuzzy name matching but still check if the item
+     already exists in the master items list — if so, use its learned category
+     instead of Tesco's generic one (e.g. "Chilled Products" → "Dairy").
+     This lets the system "learn" from user edits. */
+  const applyLearnedCategories = (parsed: ImportItem[]): ImportItem[] =>
+    parsed.map(it => {
+      const saved = itemCategories[it.item] || itemCategories[cap(it.item)];
+      if (saved) return { ...it, category: saved, matched: true };
+      return { ...it, matched: false };
+    });
   const [mode, setMode] = useState<'none' | 'preview' | 'paste' | 'tesco-info'>('none');
   const [items, setItems] = useState<ImportItem[]>([]);
   const [bestBefore, setBestBefore] = useState('');
@@ -233,7 +296,8 @@ export const ImportInwards: React.FC<Props> = ({ onBulkAdd, activeVolunteer, isF
         setMode('paste'); setParsing(false); return;
       }
       // Tesco email items keep their full product names — skip fuzzy matching
-      setItems(parsed.map(it => ({ ...it, matched: false })));
+      // but still check learned categories from master items list
+      setItems(applyLearnedCategories(parsed));
       setDonor('Tesco');
       setImportDate(extractCollectionDate(text));
       setSourceType('tesco');
@@ -252,7 +316,8 @@ export const ImportInwards: React.FC<Props> = ({ onBulkAdd, activeVolunteer, isF
     const parsed = parseTescoText(pasteText);
     if (parsed.length === 0) { setError('No items found in pasted text.'); return; }
     // Tesco email items keep their full product names — skip fuzzy matching
-    setItems(parsed.map(it => ({ ...it, matched: false })));
+    // but still check learned categories from master items list
+    setItems(applyLearnedCategories(parsed));
     setDonor('Tesco');
     setImportDate(extractCollectionDate(pasteText));
     setSourceType('tesco');
