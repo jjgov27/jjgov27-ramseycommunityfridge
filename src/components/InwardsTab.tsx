@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem, Volunteer, Donor } from '../types';
+import { InwardItem, StorageLocation, CATEGORIES, UNITS, REFERENCE_ITEMS, CATEGORY_COLOURS, CustomItem, Volunteer, Donor, CustomCategory, getAllCategories } from '../types';
 import { Plus, Trash2, ChevronUp, ChevronDown, Snowflake, ThermometerSun, ArrowRightLeft, Pencil, Check, X } from 'lucide-react';
 import { ImportInwards } from './ImportInwards';
 
@@ -13,7 +13,8 @@ const SingleItemCard: React.FC<{
   editEnteredBy: string; setEditEnteredBy: (v: string) => void; saveEdit: () => void;
   setEditingId: (id: string | null) => void; startEdit: (i: InwardItem) => void;
   onMove: (id: string, s: StorageLocation) => void; onDelete: (id: string) => void; compact?: boolean;
-}> = ({ i, editingId, editItem, setEditItem, editCategory, setEditCategory, editQty, setEditQty, editDonor, setEditDonor, editBestBefore, setEditBestBefore, editEnteredBy, setEditEnteredBy, saveEdit, setEditingId, startEdit, onMove, onDelete, compact }) => {
+  allCategories?: string[];
+}> = ({ i, editingId, editItem, setEditItem, editCategory, setEditCategory, editQty, setEditQty, editDonor, setEditDonor, editBestBefore, setEditBestBefore, editEnteredBy, setEditEnteredBy, saveEdit, setEditingId, startEdit, onMove, onDelete, compact, allCategories }) => {
   const catColour = CATEGORY_COLOURS[i.category] || CATEGORY_COLOURS['Other'];
   const statusColour = i.status === 'available'
     ? 'border-l-emerald-500 bg-gradient-to-r from-emerald-50/50 to-transparent'
@@ -35,13 +36,13 @@ const SingleItemCard: React.FC<{
               <input className="input input-bordered input-xs w-full" value={editItem} onChange={e => setEditItem(e.target.value)} /></div>
             <div><label className="text-[10px] text-base-content/50 font-medium">Category</label>
               <select className="select select-bordered select-xs w-full" value={editCategory} onChange={e => setEditCategory(e.target.value)}>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                {(allCategories || CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
               </select></div>
             <div><label className="text-[10px] text-base-content/50 font-medium">Quantity</label>
               <input type="number" className="input input-bordered input-xs w-full" min={1} value={editQty} onChange={e => setEditQty(Number(e.target.value))} /></div>
             <div><label className="text-[10px] text-base-content/50 font-medium">Donor</label>
               <input className="input input-bordered input-xs w-full" value={editDonor} onChange={e => setEditDonor(e.target.value)} /></div>
-            <div><label className="text-[10px] text-base-content/50 font-medium">Best Before</label>
+            <div><label className="text-[10px] text-base-content/50 font-medium">{editCategory === 'Meat' ? 'Use By' : 'Best Before'}</label>
               <input className="input input-bordered input-xs w-full" value={editBestBefore} onChange={e => setEditBestBefore(e.target.value)} /></div>
             <div><label className="text-[10px] text-base-content/50 font-medium">Entered By</label>
               <input className="input input-bordered input-xs w-full" value={editEnteredBy} onChange={e => setEditEnteredBy(e.target.value)} /></div>
@@ -68,7 +69,7 @@ const SingleItemCard: React.FC<{
             <div className="text-xs text-base-content/60 space-y-0.5">
               <div>{i.donor ? `From: ${i.donor}` : 'No donor'}{i.entered_by ? ` · ✍️ ${i.entered_by}` : ''} · {i.date_in} {i.time_in}</div>
               {i.unit_value > 0 && <div>💷 Value: <span className="font-medium text-emerald-700">£{i.unit_value.toFixed(2)} × {i.qty_in} = £{(i.unit_value * i.qty_in).toFixed(2)}</span></div>}
-              {i.best_before && <div>📅 Best before: <span className="font-medium">{i.best_before}</span></div>}
+              {i.best_before && <div>📅 {i.category === 'Meat' ? 'Use By' : 'Best Before'}: <span className="font-medium">{i.best_before}</span></div>}
               {i.moved_to && i.moved_date && (
                 <div className="text-purple-600 font-medium">↪ Moved to {i.moved_to === 'fridge' ? '🧊 Fridge' : '❄️ Freezer'} on {i.moved_date}</div>
               )}
@@ -131,9 +132,11 @@ interface InwardsTabProps {
   volunteers: Volunteer[];
   donors: Donor[];
   onRefreshItems?: () => void;  // called after import auto-creates new items
+  customCategories: CustomCategory[];
 }
 
-export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, onEdit, onBulkAdd, activeVolunteer, volunteers, donors, onRefreshItems }) => {
+export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, onEdit, onBulkAdd, activeVolunteer, volunteers, donors, onRefreshItems, customCategories }) => {
+  const allCategories = getAllCategories(customCategories);
   const [showForm, setShowForm] = useState(false);
   const [item, setItem] = useState('');
   const [category, setCategory] = useState('');
@@ -212,7 +215,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
 
   const handleSubmit = () => {
     if (!item.trim() || qty <= 0) return;
-    if (!bestBefore) { alert('Please select a Best Before / Sell By date'); return; }
+    if (!bestBefore) { alert(`Please select a ${category === 'Meat' ? 'Use By' : 'Best Before'} date`); return; }
     onAdd(item.trim(), category || 'Other', qty, unit, donor.trim(), bestBefore, storage, enteredBy.trim(), dateIn, unitValue || 0);
     setItem('');
     setCategory('');
@@ -302,8 +305,8 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
               {isFridge ? '🧊' : '❄️'} New {isFridge ? 'Fridge' : 'Freezer'} Entry
             </h3>
 
-            {/* Row 1: Date — Item Name — Category */}
-            <div className="grid grid-cols-3 gap-2">
+            {/* Row 1: Date — Item Name — Category — Use By / Best Before */}
+            <div className="grid grid-cols-4 gap-2">
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">📅 Date Received</span></label>
                 <input tabIndex={1} type="date" className="input input-bordered input-xs w-full bg-white" value={dateIn} onChange={e => setDateIn(e.target.value)} />
@@ -326,27 +329,35 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">Category</span></label>
                 <select tabIndex={3} className="select select-bordered select-xs w-full bg-white" value={category} onChange={e => handleCategoryChange(e.target.value)}>
                   <option value="">Select...</option>
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
+              </div>
+              <div className="form-control">
+                <label className="label py-0">
+                  <span className={`label-text text-[11px] font-bold ${category === 'Meat' ? 'text-red-600' : 'text-blue-600'}`}>
+                    {category === 'Meat' ? '🔴 Use By' : '🔵 Best Before'}
+                  </span>
+                </label>
+                <input tabIndex={4} type="date" className={`input input-bordered input-xs w-full bg-white border-2 ${category === 'Meat' ? 'border-red-400' : 'border-blue-400'}`} value={bestBefore} onChange={e => setBestBefore(e.target.value)} />
               </div>
             </div>
 
-            {/* Row 2: Qty — Unit — Donor — Value (£) — Best Before */}
-            <div className="grid grid-cols-5 gap-2">
+            {/* Row 2: Qty — Unit — Donor — Value (£) */}
+            <div className="grid grid-cols-4 gap-2">
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">Qty *</span></label>
-                <input tabIndex={4} type="number" className="input input-bordered input-xs w-full bg-white" min={1} value={qty} onChange={e => setQty(parseInt(e.target.value) || 1)} />
+                <input tabIndex={5} type="number" className="input input-bordered input-xs w-full bg-white" min={1} value={qty} onChange={e => setQty(parseInt(e.target.value) || 1)} />
               </div>
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">Unit</span></label>
-                <select tabIndex={5} className="select select-bordered select-xs w-full bg-white" value={unit} onChange={e => setUnit(e.target.value)}>
+                <select tabIndex={6} className="select select-bordered select-xs w-full bg-white" value={unit} onChange={e => setUnit(e.target.value)}>
                   {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                 </select>
               </div>
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">📥 Donor</span></label>
                 <input
-                  tabIndex={6}
+                  tabIndex={7}
                   className="input input-bordered input-xs w-full bg-white"
                   list="donor-list"
                   placeholder="From (Donor / Source)"
@@ -359,11 +370,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
               </div>
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">💷 Value (£)</span></label>
-                <input tabIndex={7} type="number" className="input input-bordered input-xs w-full bg-white" min={0} step={0.01} placeholder="0.00" value={unitValue || ''} onChange={e => setUnitValue(parseFloat(e.target.value) || 0)} />
-              </div>
-              <div className="form-control">
-                <label className="label py-0"><span className="label-text text-[11px] font-medium">Best Before</span></label>
-                <input tabIndex={8} type="date" className="input input-bordered input-xs w-full bg-white" value={bestBefore} onChange={e => setBestBefore(e.target.value)} />
+                <input tabIndex={8} type="number" className="input input-bordered input-xs w-full bg-white" min={0} step={0.01} placeholder="0.00" value={unitValue || ''} onChange={e => setUnitValue(parseFloat(e.target.value) || 0)} />
               </div>
             </div>
 
@@ -430,7 +437,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
             // Single-item groups render normally (no grouping header)
             if (group.items.length === 1) {
               const i = group.items[0];
-              return <SingleItemCard key={i.id} i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} />;
+              return <SingleItemCard key={i.id} i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} allCategories={allCategories} />;
             }
 
             // Multi-item group — consolidated card
@@ -504,7 +511,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                     <div className="px-3 py-1.5 text-[10px] font-bold text-base-content/40 uppercase tracking-wider">Individual Entries</div>
                     {group.items.map(i => (
                       <div key={i.id} className="border-t border-base-200 px-3 py-2">
-                        <SingleItemCard i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} compact />
+                        <SingleItemCard i={i} editingId={editingId} editItem={editItem} setEditItem={setEditItem} editCategory={editCategory} setEditCategory={setEditCategory} editQty={editQty} setEditQty={setEditQty} editDonor={editDonor} setEditDonor={setEditDonor} editBestBefore={editBestBefore} setEditBestBefore={setEditBestBefore} editEnteredBy={editEnteredBy} setEditEnteredBy={setEditEnteredBy} saveEdit={saveEdit} setEditingId={setEditingId} startEdit={startEdit} onMove={onMove} onDelete={onDelete} compact allCategories={allCategories} />
                       </div>
                     ))}
                   </div>
