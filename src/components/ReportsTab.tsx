@@ -113,16 +113,21 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   const allOutwards = useMemo(() => isFullReport ? [...outwards, ...archivedOutwards] : outwards, [isFullReport, outwards, archivedOutwards]);
   const allWastage = useMemo(() => isFullReport ? [...wastage, ...archivedWastage] : wastage, [isFullReport, wastage, archivedWastage]);
 
-  // Date filtering
+  // Date filtering — tolerant of empty start/end dates
   const filterByDate = <T extends Record<string, any>>(items: T[], dateField: string) => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59);
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(endDate) : null;
+    if (start && isNaN(start.getTime())) { /* invalid — ignore */ }
+    if (end) end.setHours(23, 59, 59);
+    const validStart = start && !isNaN(start.getTime()) ? start : null;
+    const validEnd = end && !isNaN(end.getTime()) ? end : null;
     return items.filter(i => {
       if (!isFullReport && i.storage !== storage) return false;
       const d = parseDateStr(i[dateField]);
       if (!d) return false;
-      return d >= start && d <= end;
+      if (validStart && d < validStart) return false;
+      if (validEnd && d > validEnd) return false;
+      return true;
     });
   };
 
