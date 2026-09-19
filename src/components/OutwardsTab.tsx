@@ -258,7 +258,7 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
                   try {
                     const selected = availableItems.filter(i => selectedItems.has(i.id));
                     for (const item of selected) {
-                      onTake(item.id, item.qty_remaining, takeAllBy.trim(), takeAllRecBy.trim(), takeAllDate);
+                      await onTake(item.id, item.qty_remaining, takeAllBy.trim(), takeAllRecBy.trim(), takeAllDate);
                     }
                     setTakeAllDone(`${selected.length} items recorded as taken from ${isFridge ? 'Fridge' : 'Freezer'}!`);
                     setTakeAllConfirm(false);
@@ -327,7 +327,7 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
 
                 <div className="form-control">
                   <label className="label py-0.5"><span className="label-text text-xs font-medium">Quantity Taken *</span></label>
-                  <input type="number" className="input input-bordered input-sm w-full bg-white" min={1} max={selectedItem?.qty_remaining || 999} value={qtyTaken} onChange={e => setQtyTaken(parseInt(e.target.value) || 1)} />
+                  <input type="number" className="input input-bordered input-sm w-full bg-white" min={1} max={selectedItem?.qty_remaining || 999} value={qtyTaken} onChange={e => { const v = e.target.value; setQtyTaken(v === '' ? '' as any : (parseInt(v) || '')); }} onBlur={() => { if (!qtyTaken || qtyTaken === ('' as any)) setQtyTaken(1); }} />
                 </div>
 
                 <div className="form-control">
@@ -406,7 +406,7 @@ export const OutwardsTab: React.FC<OutwardsTabProps> = ({ inwards, outwards, sto
                       <div className="grid grid-cols-3 gap-2">
                         <div>
                           <label className="text-[10px] text-base-content/50 font-medium">Qty Taken</label>
-                          <input type="number" className="input input-bordered input-xs w-full" min={1} value={editOutQty} onChange={e => setEditOutQty(Number(e.target.value))} />
+                          <input type="number" className="input input-bordered input-xs w-full" min={1} value={editOutQty} onChange={e => { const v = e.target.value; setEditOutQty(v === '' ? '' as any : (Number(v) || '')); }} onBlur={() => { if (!editOutQty) setEditOutQty(1); }} />
                         </div>
                         <div>
                           <label className="text-[10px] text-base-content/50 font-medium">Collected By</label>
