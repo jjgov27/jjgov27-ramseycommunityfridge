@@ -96,7 +96,7 @@ export type TabName = 'dashboard' | 'inwards' | 'outwards' | 'wastage' | 'items'
 
 export const CATEGORIES = [
   'Bakery', 'Chilled', 'Condiments', 'Dairy', 'Drinks', 'Dry Goods',
-  'Frozen', 'Fruit', 'Meat', 'Produce', 'Ready Meals', 'Snacks', 'Vegetables', 'Other'
+  'Eggs', 'Fish', 'Frozen', 'Fruit', 'Meat', 'Produce', 'Ready Meals', 'Snacks', 'Vegetables', 'Other'
 ] as const;
 
 export const CATEGORY_COLOURS: Record<string, string> = {
@@ -105,6 +105,8 @@ export const CATEGORY_COLOURS: Record<string, string> = {
   'Dairy':       'bg-blue-100 text-blue-800 border-blue-300',
   'Drinks':      'bg-cyan-100 text-cyan-800 border-cyan-300',
   'Dry Goods':   'bg-stone-100 text-stone-800 border-stone-300',
+  'Eggs':        'bg-yellow-50 text-yellow-800 border-yellow-300',
+  'Fish':        'bg-teal-100 text-teal-800 border-teal-300',
   'Frozen':      'bg-indigo-100 text-indigo-800 border-indigo-300',
   'Meat':        'bg-red-100 text-red-800 border-red-300',
   'Produce':     'bg-green-100 text-green-800 border-green-300',
