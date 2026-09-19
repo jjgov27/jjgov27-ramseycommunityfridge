@@ -140,7 +140,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
   const [showForm, setShowForm] = useState(false);
   const [item, setItem] = useState('');
   const [category, setCategory] = useState('');
-  const [qty, setQty] = useState(1);
+  const [qty, setQty] = useState<number | string>(1);
   const [unit, setUnit] = useState('items');
   const [donor, setDonor] = useState('');
   const [enteredBy, setEnteredBy] = useState(activeVolunteer);
@@ -151,7 +151,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editItem, setEditItem] = useState('');
   const [editCategory, setEditCategory] = useState('');
-  const [editQty, setEditQty] = useState(1);
+  const [editQty, setEditQty] = useState<number | string>(1);
   const [editDonor, setEditDonor] = useState('');
   const [editBestBefore, setEditBestBefore] = useState('');
   const [editEnteredBy, setEditEnteredBy] = useState('');
@@ -214,9 +214,10 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
   };
 
   const handleSubmit = () => {
-    if (!item.trim() || qty <= 0) return;
+    const qtyNum = Number(qty) || 0;
+    if (!item.trim() || qtyNum <= 0) return;
     if (!bestBefore) { alert(`Please select a ${category === 'Meat' ? 'Use By' : 'Best Before'} date`); return; }
-    onAdd(item.trim(), category || 'Other', qty, unit, donor.trim(), bestBefore, storage, enteredBy.trim(), dateIn, unitValue || 0);
+    onAdd(item.trim(), category || 'Other', qtyNum, unit, donor.trim(), bestBefore, storage, enteredBy.trim(), dateIn, unitValue || 0);
     setItem('');
     setCategory('');
     setQty(1);
@@ -346,7 +347,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
             <div className="grid grid-cols-4 gap-2">
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">Qty *</span></label>
-                <input tabIndex={5} type="number" className="input input-bordered input-xs w-full bg-white" min={1} value={qty} onChange={e => setQty(parseInt(e.target.value) || 1)} />
+                <input tabIndex={5} type="number" className="input input-bordered input-xs w-full bg-white" min={1} value={qty} onChange={e => { const v = e.target.value; setQty(v === '' ? '' : (parseInt(v) || '')); }} onBlur={() => { if (!qty || qty === '') setQty(1); }} />
               </div>
               <div className="form-control">
                 <label className="label py-0"><span className="label-text text-[11px] font-medium">Unit</span></label>
@@ -391,9 +392,9 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                 </select>
               </div>
               <div className="flex items-end">
-                {unitValue > 0 && qty > 0 && (
+                {unitValue > 0 && Number(qty) > 0 && (
                   <span className="text-xs font-semibold text-emerald-700 bg-emerald-100 rounded px-2 py-1">
-                    Total: £{(unitValue * qty).toFixed(2)}
+                    Total: £{(unitValue * Number(qty)).toFixed(2)}
                   </span>
                 )}
               </div>
@@ -401,7 +402,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
                 tabIndex={10}
                 className={`btn btn-xs text-white ${isFridge ? 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600' : 'bg-blue-500 hover:bg-blue-600 border-blue-600'}`}
                 onClick={handleSubmit}
-                disabled={!item.trim() || qty <= 0}
+                disabled={!item.trim() || Number(qty) <= 0}
               >
                 <Plus size={14} /> Add to {isFridge ? 'Fridge' : 'Freezer'}
               </button>
