@@ -76,7 +76,6 @@ const TESCO_CAT: Record<string, string> = {
   'vegetables': 'Vegetables',
   'bread and bread products': 'Bakery',
   'bakery': 'Bakery',
-  'chilled products with dairy and eggs': 'Dairy',
   'dairy': 'Dairy',
   'fresh meat': 'Meat',
   'meat': 'Meat',
@@ -87,11 +86,40 @@ const TESCO_CAT: Record<string, string> = {
   'ready meals': 'Ready Meals',
   'snacks': 'Snacks',
   'condiments': 'Condiments',
-  'chilled products': 'Dairy',
+  'eggs': 'Eggs',
 };
 
-const mapCategory = (src: string): string => {
+/* Product-level keyword detection for "Chilled Products with Dairy and Eggs"
+   which Foodiverse lumps together — we split by product name keywords.
+   Order matters: Ready Meals first so "Prawn Sandwich" → Ready Meals not Fish */
+const CHILLED_PRODUCT_RULES: Array<{ keywords: string[]; category: string }> = [
+  { keywords: ['sandwich', 'pasta', 'tortilla', 'wrap', 'pie', 'meal', 'noodle'], category: 'Ready Meals' },
+  { keywords: ['prawn', 'salmon', 'fish', 'cod', 'haddock', 'tuna', 'mackerel', 'trout', 'sea bass'], category: 'Fish' },
+  { keywords: ['mince', 'burger', 'beef', 'pork', 'lamb', 'chicken', 'sausage', 'steak', 'ham', 'turkey', 'bacon'], category: 'Meat' },
+  { keywords: ['cream', 'butter', 'milk', 'yoghurt', 'yogurt', 'cheese', 'soya drink', 'alpro', 'lactofree', 'yop'], category: 'Dairy' },
+  { keywords: ['sauce', 'dip', 'hummus', 'pesto'], category: 'Dairy' },
+];
+
+/* Storage rules for Foodiverse imports — Meat & Fish always go to Freezer
+   (Wednesday night Tesco donations can't be given out fresh next day) */
+const FREEZER_CATEGORIES = new Set(['Meat', 'Fish']);
+/* Specific product keywords that should always go to Freezer regardless of category.
+   Note: Sandwiches with meat (e.g. prawn sandwich) stay in Fridge — those are eaten same day.
+   These keywords catch non-obvious items the user has flagged for Freezer. */
+const FREEZER_KEYWORDS = ['stir fry', "this isn't", 'plant butter'];
+
+const mapCategory = (src: string, productName = ''): string => {
   const lower = src.toLowerCase().trim();
+  const nameLower = productName.toLowerCase();
+
+  // "Chilled Products with Dairy and Eggs" — detect by product name
+  if (lower.includes('chilled products') || lower === 'chilled products with dairy and eggs') {
+    for (const rule of CHILLED_PRODUCT_RULES) {
+      if (rule.keywords.some(kw => nameLower.includes(kw))) return rule.category;
+    }
+    return 'Dairy'; // default for unrecognised chilled items
+  }
+
   // Try exact match first
   if (TESCO_CAT[lower]) return TESCO_CAT[lower];
   // Then try contains — longest key first so specific matches win over generic ones
@@ -100,6 +128,14 @@ const mapCategory = (src: string): string => {
     if (lower.includes(key) || key.includes(lower)) return val;
   }
   return 'Other';
+};
+
+/* Determine storage location based on category and product name */
+const mapStorage = (category: string, productName: string): StorageLocation => {
+  if (FREEZER_CATEGORIES.has(category)) return 'freezer';
+  const nameLower = productName.toLowerCase();
+  if (FREEZER_KEYWORDS.some(kw => nameLower.includes(kw))) return 'freezer';
+  return 'fridge';
 };
 
 /* ---- Auto-capitalise ---- */
@@ -179,10 +215,13 @@ const parseTescoText = (raw: string): ImportItem[] => {
       const cleanStart = name.lastIndexOf(', ');
       if (cleanStart > 0) name = name.substring(cleanStart + 2);
     }
+    const itemName = cap(name);
+    const category = mapCategory(match[3].trim(), name);
+    const storage = mapStorage(category, name);
     items.push({
-      id: id++, item: cap(name), category: mapCategory(match[3].trim()),
+      id: id++, item: itemName, category,
       qty: parseInt(match[4]), unit: 'items', weight: parseFloat(match[5]),
-      value: parseFloat(match[6]), storage: 'fridge', selected: true, bestBefore: '',
+      value: parseFloat(match[6]), storage, selected: true, bestBefore: '',
     });
   }
 
@@ -198,10 +237,12 @@ const parseTescoText = (raw: string): ImportItem[] => {
     const fb = line.match(/^(.+?)\s+\d{6,}\s+(.+?)\s+(\d+)\s+([\d.]+)\s*Kg\s+GBP\s+([\d.]+)/i);
     if (fb) {
       let name = fb[1].trim().replace(/,\s*(Fruit and Veg|Bakery|Chilled|Non Food|Frozen|Ambient)\s*$/i, '').trim();
+      const fbCat = mapCategory(fb[2].trim(), name);
+      const fbStore = mapStorage(fbCat, name);
       items.push({
-        id: id++, item: cap(name), category: mapCategory(fb[2].trim()),
+        id: id++, item: cap(name), category: fbCat,
         qty: parseInt(fb[3]), unit: 'items', weight: parseFloat(fb[4]),
-        value: parseFloat(fb[5]), storage: 'fridge', selected: true, bestBefore: '',
+        value: parseFloat(fb[5]), storage: fbStore, selected: true, bestBefore: '',
       });
       continue;
     }
@@ -218,15 +259,40 @@ const parseTescoText = (raw: string): ImportItem[] => {
   return items;
 };
 
+/* ---- Extract donor name from Foodiverse email ---- */
+const extractDonor = (raw: string): string => {
+  const m = raw.match(/Donor\s+name\s*:\s*(.+)/i);
+  if (m) {
+    const name = m[1].trim();
+    if (/superstore/i.test(name)) return 'Tesco Superstore';
+    if (/exp/i.test(name)) return 'Tesco Express';
+    if (/tesco/i.test(name)) return 'Tesco';
+    return name;
+  }
+  return 'Tesco';
+};
+
 /* ---- Date helper ---- */
 const todayISO = () => new Date().toISOString().split('T')[0];
 
-/* ---- Extract collection date from PDF text ---- */
+/* ---- Extract collection date from PDF/email text ---- */
 const extractCollectionDate = (raw: string): string => {
+  // Try DD/MM/YYYY format first (older PDFs)
   const m = raw.match(/Date:\s*(\d{1,2}\/\d{1,2}\/\d{4})/);
-  if (!m) return todayISO();
-  const [d, mo, y] = m[1].split('/');
-  return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  if (m) {
+    const [d, mo, y] = m[1].split('/');
+    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  // Try Foodiverse email format: "Date: 16 September 2026" or ISO "2026-09-16"
+  const m2 = raw.match(/Transferred\s*@(\d{4}-\d{2}-\d{2})/);
+  if (m2) return m2[1];
+  const m3 = raw.match(/Date:\s*(\d{1,2})\s+(\w+)\s+(\d{4})/);
+  if (m3) {
+    const months: Record<string, string> = { january:'01', february:'02', march:'03', april:'04', may:'05', june:'06', july:'07', august:'08', september:'09', october:'10', november:'11', december:'12' };
+    const mo = months[m3[2].toLowerCase()] || '01';
+    return `${m3[3]}-${mo}-${m3[1].padStart(2, '0')}`;
+  }
+  return todayISO();
 };
 
 /* ================================================================ */
@@ -298,7 +364,7 @@ export const ImportInwards: React.FC<Props> = ({ onBulkAdd, activeVolunteer, isF
       // Tesco email items keep their full product names — skip fuzzy matching
       // but still check learned categories from master items list
       setItems(applyLearnedCategories(parsed));
-      setDonor('Tesco');
+      setDonor(extractDonor(text));
       setImportDate(extractCollectionDate(text));
       setSourceType('tesco');
       setMode('preview');
@@ -318,7 +384,7 @@ export const ImportInwards: React.FC<Props> = ({ onBulkAdd, activeVolunteer, isF
     // Tesco email items keep their full product names — skip fuzzy matching
     // but still check learned categories from master items list
     setItems(applyLearnedCategories(parsed));
-    setDonor('Tesco');
+    setDonor(extractDonor(pasteText));
     setImportDate(extractCollectionDate(pasteText));
     setSourceType('tesco');
     setMode('preview');
