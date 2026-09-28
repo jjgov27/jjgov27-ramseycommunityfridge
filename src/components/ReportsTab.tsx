@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { FileBarChart, Download, Calendar, Filter, TrendingUp, AlertTriangle, PackagePlus, Users, ListPlus, Database, Layers } from 'lucide-react';
+import { FileBarChart, Download, Calendar, Filter, TrendingUp, AlertTriangle, PackagePlus, Users, ListPlus, Database, Layers, Search } from 'lucide-react';
 import { WastageEntry, InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS, CustomItem, ArchivedRecord, Donor, CustomCategory, getAllCategories, getCategoryHexColour } from '../types';
 
 interface Props {
@@ -42,6 +42,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   const [endDate, setEndDate] = useState(toISODate(today));
   const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly' | 'custom' | 'stockcheck' | 'donor'>('inwards');
   const [selectedDonor, setSelectedDonor] = useState('');
+  const [itemSearch, setItemSearch] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -159,6 +160,17 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   const filteredOutwards = useMemo(() => dateFilteredOutwards.filter(o => catPassesFilter(o.category)), [dateFilteredOutwards, selectedCats, catFilterMode]);
   const filteredWastage = useMemo(() => dateFilteredWastage.filter(w => catPassesFilter(w.category)), [dateFilteredWastage, selectedCats, catFilterMode]);
 
+  // Apply item search on top of the category filter
+  const finalInwards = useMemo(() =>
+    itemSearch.trim() ? filteredInwards.filter(i => i.item.toLowerCase().includes(itemSearch.trim().toLowerCase())) : filteredInwards,
+    [filteredInwards, itemSearch]);
+  const finalOutwards = useMemo(() =>
+    itemSearch.trim() ? filteredOutwards.filter(o => o.item.toLowerCase().includes(itemSearch.trim().toLowerCase())) : filteredOutwards,
+    [filteredOutwards, itemSearch]);
+  const finalWastage = useMemo(() =>
+    itemSearch.trim() ? filteredWastage.filter(w => w.item.toLowerCase().includes(itemSearch.trim().toLowerCase())) : filteredWastage,
+    [filteredWastage, itemSearch]);
+
   // Build lookup for outwards/wastage linked to inwards (to track time between in and out)
   const inwardLookup = useMemo(() => {
     const map: Record<string, InwardItem & { _archived?: boolean }> = {};
@@ -167,59 +179,59 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   }, [allInwards]);
 
   // Stats
-  const totalInQty = filteredInwards.reduce((s, i) => s + (i.qty_in || 0), 0);
-  const totalTaken = filteredOutwards.reduce((s, o) => s + o.qty_taken, 0);
-  const totalWasted = filteredWastage.reduce((s, w) => s + w.qty_wasted, 0);
-  const totalWeightKg = filteredWastage.reduce((s, w) => s + (w.weight_kg || 0), 0);
+  const totalInQty = finalInwards.reduce((s, i) => s + (i.qty_in || 0), 0);
+  const totalTaken = finalOutwards.reduce((s, o) => s + o.qty_taken, 0);
+  const totalWasted = finalWastage.reduce((s, w) => s + w.qty_wasted, 0);
+  const totalWeightKg = finalWastage.reduce((s, w) => s + (w.weight_kg || 0), 0);
 
   // Inwards groupings
   const inwardsByCategory = useMemo(() => {
     const map: Record<string, { qty: number; items: string[] }> = {};
-    filteredInwards.forEach(i => {
+    finalInwards.forEach(i => {
       if (!map[i.category]) map[i.category] = { qty: 0, items: [] };
       map[i.category].qty += i.qty_in;
       if (!map[i.category].items.includes(i.item)) map[i.category].items.push(i.item);
     });
     return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
-  }, [filteredInwards]);
+  }, [finalInwards]);
 
   const inwardsByDonor = useMemo(() => {
     const map: Record<string, { qty: number; items: Set<string> }> = {};
-    filteredInwards.forEach(i => {
+    finalInwards.forEach(i => {
       const donor = i.donor || 'Unknown';
       if (!map[donor]) map[donor] = { qty: 0, items: new Set() };
       map[donor].qty += i.qty_in;
       map[donor].items.add(i.item);
     });
     return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
-  }, [filteredInwards]);
+  }, [finalInwards]);
 
   // Wastage groupings
   const wastageByReason = useMemo(() => {
     const map: Record<string, number> = {};
-    filteredWastage.forEach(w => { map[w.reason] = (map[w.reason] || 0) + w.qty_wasted; });
+    finalWastage.forEach(w => { map[w.reason] = (map[w.reason] || 0) + w.qty_wasted; });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
-  }, [filteredWastage]);
+  }, [finalWastage]);
 
   const wastageByItem = useMemo(() => {
     const map: Record<string, { qty: number; category: string; weightKg: number }> = {};
-    filteredWastage.forEach(w => {
+    finalWastage.forEach(w => {
       if (!map[w.item]) map[w.item] = { qty: 0, category: w.category, weightKg: 0 };
       map[w.item].qty += w.qty_wasted;
       map[w.item].weightKg += (w.weight_kg || 0);
     });
     return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
-  }, [filteredWastage]);
+  }, [finalWastage]);
 
   // Outwards groupings
   const outwardsByItem = useMemo(() => {
     const map: Record<string, { qty: number; category: string }> = {};
-    filteredOutwards.forEach(o => {
+    finalOutwards.forEach(o => {
       if (!map[o.item]) map[o.item] = { qty: 0, category: o.category };
       map[o.item].qty += o.qty_taken;
     });
     return Object.entries(map).sort((a, b) => b[1].qty - a[1].qty);
-  }, [filteredOutwards]);
+  }, [finalOutwards]);
 
   // Helper: most common unit within a list of inward items
   const mostCommonUnit = (items: InwardItem[]): string => {
@@ -235,7 +247,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       item: string; category: string; qty: number; valueSum: number; valueCount: number;
       totalValue: number; donors: Set<string>; locations: Set<string>; units: Record<string, number>;
     }> = {};
-    filteredInwards.forEach(i => {
+    finalInwards.forEach(i => {
       if (!map[i.item]) map[i.item] = { item: i.item, category: i.category, qty: 0, valueSum: 0, valueCount: 0, totalValue: 0, donors: new Set(), locations: new Set(), units: {} };
       const g = map[i.item];
       g.qty += i.qty_in || 0;
@@ -249,11 +261,11 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       const unit = Object.entries(g.units).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
       return { ...g, avgValue: g.valueCount > 0 ? g.valueSum / g.valueCount : 0, unit };
     }).sort((a, b) => b.qty - a.qty);
-  }, [filteredInwards]);
+  }, [finalInwards]);
 
   const groupedOutwardsData = useMemo(() => {
     const map: Record<string, { item: string; category: string; qty: number; donors: Set<string>; sources: Set<string> }> = {};
-    filteredOutwards.forEach(o => {
+    finalOutwards.forEach(o => {
       if (!map[o.item]) map[o.item] = { item: o.item, category: o.category, qty: 0, donors: new Set(), sources: new Set() };
       const g = map[o.item];
       g.qty += o.qty_taken || 0;
@@ -261,11 +273,11 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       g.sources.add(o.source || 'manual');
     });
     return Object.values(map).sort((a, b) => b.qty - a.qty);
-  }, [filteredOutwards]);
+  }, [finalOutwards]);
 
   const groupedWastageData = useMemo(() => {
     const map: Record<string, { item: string; category: string; qty: number; weightKg: number; reasons: Set<string>; donors: Set<string> }> = {};
-    filteredWastage.forEach(w => {
+    finalWastage.forEach(w => {
       if (!map[w.item]) map[w.item] = { item: w.item, category: w.category, qty: 0, weightKg: 0, reasons: new Set(), donors: new Set() };
       const g = map[w.item];
       g.qty += w.qty_wasted || 0;
@@ -274,10 +286,10 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       if (w.donor) g.donors.add(w.donor);
     });
     return Object.values(map).sort((a, b) => b.qty - a.qty);
-  }, [filteredWastage]);
+  }, [finalWastage]);
 
   // Grand totals used by tfoot rows
-  const totalInValue = filteredInwards.reduce((s, i) => s + (i.unit_value || 0) * (i.qty_in || 0), 0);
+  const totalInValue = finalInwards.reduce((s, i) => s + (i.unit_value || 0) * (i.qty_in || 0), 0);
   const showGroupToggle = reportType === 'inwards' || reportType === 'outwards' || reportType === 'wastage' || reportType === 'all';
 
   // CSV Download
@@ -300,14 +312,14 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
         csv += `\nTOTALS,,${groupedInwardsData.reduce((s, g) => s + g.qty, 0)},,,${totalInValue.toFixed(2)},,\n\n`;
       } else {
         csv += 'Date,Time,Item,Quantity,Unit,Category,Location,Moved To,Moved Date,Donor/Source,Volunteer,Use By,Best Before,Value (£),Total Value (£),Status\n';
-        filteredInwards.forEach(i => {
+        finalInwards.forEach(i => {
           const status = i.qty_remaining <= 0 ? 'All Gone' : (i.total_taken > 0 || i.total_wasted > 0) ? 'Partial' : 'Available';
           const uv = i.unit_value || 0;
           const totalVal = uv * i.qty_in;
           csv += `"${i.date_in}","${i.time_in || ''}","${i.item}",${i.qty_in},"${i.unit}","${i.category}","${i.storage}","${i.moved_to || ''}","${i.moved_date || ''}","${i.donor || ''}","${i.entered_by || ''}","${isMeat(i.category) ? i.best_before || '' : '-'}","${isMeat(i.category) ? '-' : i.best_before || ''}",${uv > 0 ? uv.toFixed(2) : ''},${totalVal > 0 ? totalVal.toFixed(2) : ''},"${status}"\n`;
         });
         csv += `\nTOTALS,,,${totalInQty},,,,,,,,,,,${totalInValue.toFixed(2)},\n`;
-        csv += `Total Items In,,,${totalInQty}\nTotal Entries,,,${filteredInwards.length}\n\n`;
+        csv += `Total Items In,,,${totalInQty}\nTotal Entries,,,${finalInwards.length}\n\n`;
       }
 
       csv += 'INWARDS BY CATEGORY\nCategory,Qty,Unique Items\n';
@@ -332,7 +344,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
         csv += `\nTOTALS,,${groupedOutwardsData.reduce((s, g) => s + g.qty, 0)},,\n\n`;
       } else {
         csv += 'Date,Time,Item,Quantity,Donor/Source,Volunteer,Source Type,Days In Stock\n';
-        filteredOutwards.forEach(o => {
+        finalOutwards.forEach(o => {
           const inItem = inwardLookup[o.inward_id];
           let daysInStock = '';
           if (inItem) {
@@ -362,7 +374,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
         csv += `\nTOTALS,,${gTotalQty},${gTotalWeight.toFixed(1)},${kgToLbs(gTotalWeight)},,\n\n`;
       } else {
         csv += 'Date,Time,Item,Quantity,Weight KG,Weight lbs,Reason,Donor/Source,Volunteer,Notes\n';
-        filteredWastage.forEach(w => {
+        finalWastage.forEach(w => {
           const wkg = w.weight_kg || 0;
           csv += `"${w.date_wasted}","","${w.item}",${w.qty_wasted},${wkg},${wkg > 0 ? kgToLbs(wkg) : ''},"${w.reason}","${w.donor || ''}","${w.reported_by || ''}","${w.notes || ''}"\n`;
         });
@@ -384,9 +396,9 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       csv += 'VOLUNTEER ACTIVITY\nVolunteer,Items In,Qty In,Items Out,Qty Out,Waste Entries,Qty Wasted,Total Actions\n';
       const volCsvMap: Record<string, { inC: number; inQ: number; outC: number; outQ: number; wC: number; wQ: number }> = {};
       const ensureVol = (n: string) => { if (!volCsvMap[n]) volCsvMap[n] = { inC: 0, inQ: 0, outC: 0, outQ: 0, wC: 0, wQ: 0 }; return volCsvMap[n]; };
-      filteredInwards.forEach(i => { const v = ensureVol(i.entered_by || '?'); v.inC++; v.inQ += i.qty_in; });
-      filteredOutwards.forEach(o => { const v = ensureVol(o.recorded_by || '?'); v.outC++; v.outQ += o.qty_taken; });
-      filteredWastage.forEach(w => { const v = ensureVol(w.reported_by || '?'); v.wC++; v.wQ += w.qty_wasted; });
+      finalInwards.forEach(i => { const v = ensureVol(i.entered_by || '?'); v.inC++; v.inQ += i.qty_in; });
+      finalOutwards.forEach(o => { const v = ensureVol(o.recorded_by || '?'); v.outC++; v.outQ += o.qty_taken; });
+      finalWastage.forEach(w => { const v = ensureVol(w.reported_by || '?'); v.wC++; v.wQ += w.qty_wasted; });
       Object.entries(volCsvMap).forEach(([name, d]) => {
         csv += `"${name}",${d.inC},${d.inQ},${d.outC},${d.outQ},${d.wC},${d.wQ},${d.inC + d.outC + d.wC}\n`;
       });
@@ -484,6 +496,21 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                 <Filter size={12} /> Categories {selectedCats.size > 0 ? `(${selectedCats.size} ${catFilterMode === 'include' ? 'included' : 'excluded'})` : ''}
               </button>
             )}
+            {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && (
+              <div className="flex items-center gap-1">
+                <Search size={12} className="text-violet-600" />
+                <input
+                  type="text"
+                  placeholder="Search items..."
+                  className={`input input-bordered input-xs w-40 ${itemSearch.trim() ? 'border-amber-500 bg-amber-50' : ''}`}
+                  value={itemSearch}
+                  onChange={e => setItemSearch(e.target.value)}
+                />
+                {itemSearch.trim() && (
+                  <button className="btn btn-xs btn-ghost text-red-500" onClick={() => setItemSearch('')}>✕</button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Category filter panel */}
@@ -562,8 +589,8 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               <PackagePlus size={16} className="text-green-500 mx-auto" />
               <p className="text-2xl font-bold text-green-700">{totalInQty}</p>
               <p className="text-xs text-green-500">Total Received</p>
-              <p className="text-xs text-green-400">{filteredInwards.length} entries</p>
-              {(() => { const tv = filteredInwards.reduce((s, i) => s + (i.unit_value || 0) * i.qty_in, 0); return tv > 0 ? <p className="text-xs text-green-600 font-semibold">💷 £{tv.toFixed(2)}</p> : null; })()}
+              <p className="text-xs text-green-400">{finalInwards.length} entries</p>
+              {(() => { const tv = finalInwards.reduce((s, i) => s + (i.unit_value || 0) * i.qty_in, 0); return tv > 0 ? <p className="text-xs text-green-600 font-semibold">💷 £{tv.toFixed(2)}</p> : null; })()}
             </div>
           </div>
         )}
@@ -573,7 +600,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               <TrendingUp size={16} className="text-blue-500 mx-auto" />
               <p className="text-2xl font-bold text-blue-700">{totalTaken}</p>
               <p className="text-xs text-blue-500">Total Taken</p>
-              <p className="text-xs text-blue-400">{filteredOutwards.length} entries</p>
+              <p className="text-xs text-blue-400">{finalOutwards.length} entries</p>
             </div>
           </div>
         )}
@@ -595,7 +622,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           <div className="card bg-base-100 border border-base-300 shadow-sm">
             <div className="card-body p-3 space-y-2">
               <p className="text-xs font-bold text-green-700">📥 Inward Report — {groupByItem ? 'Grouped by Item' : 'Line by Line'}</p>
-              {filteredInwards.length === 0 ? (
+              {finalInwards.length === 0 ? (
                 <p className="text-xs text-base-content/40 text-center py-4">No inward entries in this period</p>
               ) : groupByItem ? (
                 <div className="overflow-x-auto">
@@ -622,7 +649,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                       <tr className="text-[10px] font-bold bg-base-200">
                         <td>TOTALS</td>
                         <td></td>
-                        <td>{groupedInwardsData.reduce((s, g) => s + g.qty, 0)} {mostCommonUnit(filteredInwards)}</td>
+                        <td>{groupedInwardsData.reduce((s, g) => s + g.qty, 0)} {mostCommonUnit(finalInwards)}</td>
                         <td></td>
                         <td>£{totalInValue.toFixed(2)}</td>
                         <td></td>
@@ -641,7 +668,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredInwards.map(i => (
+                      {finalInwards.map(i => (
                         <tr key={i.id} className="text-[10px]">
                           <td>{i.date_in}</td>
                           <td>{i.time_in || '-'}</td>
@@ -661,7 +688,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                     <tfoot>
                       <tr className="text-[10px] font-bold bg-base-200">
                         <td colSpan={3}>TOTALS</td>
-                        <td>{totalInQty} {mostCommonUnit(filteredInwards)}</td>
+                        <td>{totalInQty} {mostCommonUnit(finalInwards)}</td>
                         <td></td>
                         <td></td>
                         <td></td>
@@ -734,7 +761,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           <div className="card bg-base-100 border border-base-300 shadow-sm">
             <div className="card-body p-3 space-y-2">
               <p className="text-xs font-bold text-blue-700">📤 Outward Report — {groupByItem ? 'Grouped by Item' : 'Line by Line'}</p>
-              {filteredOutwards.length === 0 ? (
+              {finalOutwards.length === 0 ? (
                 <p className="text-xs text-base-content/40 text-center py-4">No outward entries in this period</p>
               ) : groupByItem ? (
                 <div className="overflow-x-auto">
@@ -780,7 +807,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredOutwards.map((o, idx) => {
+                      {finalOutwards.map((o, idx) => {
                         const inItem = inwardLookup[o.inward_id];
                         let daysInStock = '-';
                         if (inItem) {
@@ -823,10 +850,10 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           </div>
 
           {/* Outwards source breakdown */}
-          {filteredOutwards.length > 0 && (() => {
-            const manual = filteredOutwards.filter(o => !o.source || o.source === 'manual');
-            const imported = filteredOutwards.filter(o => o.source === 'import');
-            const bulk = filteredOutwards.filter(o => o.source === 'bulk');
+          {finalOutwards.length > 0 && (() => {
+            const manual = finalOutwards.filter(o => !o.source || o.source === 'manual');
+            const imported = finalOutwards.filter(o => o.source === 'import');
+            const bulk = finalOutwards.filter(o => o.source === 'bulk');
             const manualQty = manual.reduce((s, o) => s + o.qty_taken, 0);
             const importQty = imported.reduce((s, o) => s + o.qty_taken, 0);
             const bulkQty = bulk.reduce((s, o) => s + o.qty_taken, 0);
@@ -888,7 +915,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           <div className="card bg-base-100 border border-base-300 shadow-sm">
             <div className="card-body p-3 space-y-2">
               <p className="text-xs font-bold text-red-700">🗑️ Wastage Report — {groupByItem ? 'Grouped by Item' : 'Line by Line'}</p>
-              {filteredWastage.length === 0 ? (
+              {finalWastage.length === 0 ? (
                 <p className="text-xs text-base-content/40 text-center py-4">No wastage in this period — that's great! 🎉</p>
               ) : groupByItem ? (
                 <div className="overflow-x-auto">
@@ -937,7 +964,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredWastage.map((w, idx) => (
+                      {finalWastage.map((w, idx) => (
                         <tr key={`${w.id}-${idx}`} className="text-[10px]">
                           <td>{w.date_wasted}</td>
                           <td className="font-medium">{w.item}</td>
@@ -1017,10 +1044,10 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       )}
 
       {/* 📉 Wastage Trends — by week and category */}
-      {(reportType === 'wastage' || reportType === 'all') && filteredWastage.length > 0 && (() => {
+      {(reportType === 'wastage' || reportType === 'all') && finalWastage.length > 0 && (() => {
         // Group wastage by week
         const weekMap: Record<string, { total: number; weightKg: number; cats: Record<string, number> }> = {};
-        filteredWastage.forEach(w => {
+        finalWastage.forEach(w => {
           const d = parseDateStr(w.date_wasted);
           if (!d) return;
           const weekStart = new Date(d);
@@ -1036,7 +1063,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
 
         // Category trend
         const catTrend: Record<string, number> = {};
-        filteredWastage.forEach(w => { catTrend[w.category] = (catTrend[w.category] || 0) + w.qty_wasted; });
+        finalWastage.forEach(w => { catTrend[w.category] = (catTrend[w.category] || 0) + w.qty_wasted; });
         const catEntries = Object.entries(catTrend).sort((a, b) => b[1] - a[1]);
         const maxCatQty = Math.max(...catEntries.map(([, q]) => q), 1);
 
@@ -1599,9 +1626,9 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           if (!volMap[name]) volMap[name] = { inQty: 0, inCount: 0, outQty: 0, outCount: 0, wasteQty: 0, wasteCount: 0 };
           return volMap[name];
         };
-        filteredInwards.forEach(i => { const v = addVol(i.entered_by || '?'); v.inCount++; v.inQty += i.qty_in; });
-        filteredOutwards.forEach(o => { const v = addVol(o.recorded_by || '?'); v.outCount++; v.outQty += o.qty_taken; });
-        filteredWastage.forEach(w => { const v = addVol(w.reported_by || '?'); v.wasteCount++; v.wasteQty += w.qty_wasted; });
+        finalInwards.forEach(i => { const v = addVol(i.entered_by || '?'); v.inCount++; v.inQty += i.qty_in; });
+        finalOutwards.forEach(o => { const v = addVol(o.recorded_by || '?'); v.outCount++; v.outQty += o.qty_taken; });
+        finalWastage.forEach(w => { const v = addVol(w.reported_by || '?'); v.wasteCount++; v.wasteQty += w.qty_wasted; });
         const vols = Object.entries(volMap).sort((a, b) => (b[1].inCount + b[1].outCount + b[1].wasteCount) - (a[1].inCount + a[1].outCount + a[1].wasteCount));
         if (vols.length === 0) return null;
         return (
@@ -1640,7 +1667,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
       {/* ===== DONOR REPORT ===== */}
       {reportType === 'donor' && (() => {
         const donorItems = selectedDonor
-          ? filteredInwards.filter(i => {
+          ? finalInwards.filter(i => {
               const dLow = (i.donor || '').trim().toLowerCase();
               const sLow = selectedDonor.trim().toLowerCase();
               return dLow.includes(sLow) || sLow.includes(dLow);
