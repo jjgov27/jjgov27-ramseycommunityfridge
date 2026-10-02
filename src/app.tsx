@@ -520,6 +520,7 @@ const App: React.FC = () => {
             storage={storage} onStorageChange={setStorage}
             archive={archive} customItems={customItems}
             donors={donors} customCategories={customCategories}
+            deliveries={deliveries}
           />
         )}
         {tab === 'history' && (
