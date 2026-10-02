@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { LayoutDashboard, ArrowDownToLine, ArrowUpFromLine, Trash2, ListPlus, FileBarChart, Archive, Shield, RefreshCw, User } from 'lucide-react';
-import { TabName, StorageLocation, InwardItem, OutwardEntry, WastageEntry, CustomItem, ArchivedRecord, Volunteer, Donor, CustomCategory } from './types';
+import { LayoutDashboard, ArrowDownToLine, ArrowUpFromLine, Trash2, ListPlus, FileBarChart, Archive, Shield, RefreshCw, User, Package } from 'lucide-react';
+import { TabName, StorageLocation, InwardItem, OutwardEntry, WastageEntry, CustomItem, ArchivedRecord, Volunteer, Donor, CustomCategory, Delivery } from './types';
 import {
   initDB, addInward, loadInwards, addOutward, loadOutwards, addWastage, loadWastage,
   deleteOutward, deleteWastage, deleteInward, loadCustomItems, addCustomItem, deleteCustomItem,
@@ -10,10 +10,12 @@ import {
   loadVolunteers, addVolunteer, deleteVolunteer, importVolunteers, bulkInwardsToOutwards,
   loadDonors, addDonor, deleteDonor, importDonors, moveInwardItem, quickTakeAllAvailable,
   updateInward, updateOutward, bulkAddInwards, updateCustomItemCategory,
-  loadCustomCategories, addCustomCategory, deleteCustomCategory, importCustomCategories
+  loadCustomCategories, addCustomCategory, deleteCustomCategory, importCustomCategories,
+  loadDeliveries, addDelivery, deleteDelivery
 } from './utils/db';
 import { Dashboard } from './components/Dashboard';
 import { InwardsTab } from './components/InwardsTab';
+import { DeliveriesTab } from './components/DeliveriesTab';
 import { OutwardsTab } from './components/OutwardsTab';
 import { WastageTab } from './components/WastageTab';
 import { ItemsTab } from './components/ItemsTab';
@@ -22,7 +24,7 @@ import { HistoryTab } from './components/HistoryTab';
 import { AdminTab } from './components/AdminTab';
 
 // Module-level first-load cache — survives React strict mode remounts
-let _firstLoadPromise: Promise<{inv: any; out: any; wst: any; ci: any; arch: any; vols: any; dnrs: any; cats: any}> | null = null;
+let _firstLoadPromise: Promise<{inv: any; out: any; wst: any; ci: any; arch: any; vols: any; dnrs: any; cats: any; dels: any}> | null = null;
 function firstLoad() {
   if (!_firstLoadPromise) {
     _firstLoadPromise = initDB().then(async () => {
@@ -35,7 +37,8 @@ function firstLoad() {
       const vols = await loadVolunteers();
       const dnrs = await loadDonors();
       const cats = await loadCustomCategories();
-      return { inv, out, wst, ci, arch, vols, dnrs, cats };
+      const dels = await loadDeliveries();
+      return { inv, out, wst, ci, arch, vols, dnrs, cats, dels };
     });
   }
   return _firstLoadPromise;
@@ -44,6 +47,7 @@ function firstLoad() {
 const TABS: { id: TabName; label: string; icon: React.ReactNode }[] = [
   { id: 'dashboard', label: 'Home', icon: <LayoutDashboard size={16} /> },
   { id: 'inwards', label: 'In', icon: <ArrowDownToLine size={16} /> },
+  { id: 'deliveries', label: 'Deliveries', icon: <Package size={16} /> },
   { id: 'outwards', label: 'Out', icon: <ArrowUpFromLine size={16} /> },
   { id: 'wastage', label: 'Waste', icon: <Trash2 size={16} /> },
   { id: 'items', label: 'Settings', icon: <ListPlus size={16} /> },
@@ -63,6 +67,7 @@ const App: React.FC = () => {
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [donors, setDonors] = useState<Donor[]>([]);
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
+  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [archiveMsg, setArchiveMsg] = useState<string | null>(null);
@@ -87,6 +92,7 @@ const App: React.FC = () => {
     const vols = await loadVolunteers(); setVolunteers(vols);
     const dnrs = await loadDonors(); setDonors(dnrs);
     const cats = await loadCustomCategories(); setCustomCategories(cats);
+    const dels = await loadDeliveries(); setDeliveries(dels);
   }, []);
 
   // Targeted refresh functions — only reload the table(s) affected by an action
@@ -97,12 +103,13 @@ const App: React.FC = () => {
   const refreshVolunteers = useCallback(async () => { setVolunteers(await loadVolunteers()); }, []);
   const refreshDonors = useCallback(async () => { setDonors(await loadDonors()); }, []);
   const refreshArchive = useCallback(async () => { setArchive(await loadArchive()); }, []);
+  const refreshDeliveries = useCallback(async () => { setDeliveries(await loadDeliveries()); }, []);
   const refreshCategories = useCallback(async () => { setCustomCategories(await loadCustomCategories()); }, []);
 
   useEffect(() => {
-    firstLoad().then(({ inv, out, wst, ci, arch, vols, dnrs, cats }) => {
+    firstLoad().then(({ inv, out, wst, ci, arch, vols, dnrs, cats, dels }) => {
       setInwards(inv); setOutwards(out); setWastage(wst); setCustomItems(ci);
-      setArchive(arch); setVolunteers(vols); setDonors(dnrs); setCustomCategories(cats);
+      setArchive(arch); setVolunteers(vols); setDonors(dnrs); setCustomCategories(cats); setDeliveries(dels);
       setLoading(false);
     });
   }, []);
@@ -189,6 +196,19 @@ const App: React.FC = () => {
       setActionInProgress(false);
     }
   };
+
+  const handleAddDelivery = async (date: string, time: string, donor: string, weightKg: number, itemCount: number, receivedBy: string, notes: string, totalValue: number) => {
+    if (actionInProgress) return;
+    setActionInProgress(true);
+    try {
+      await addDelivery(date, time, donor, weightKg, itemCount, receivedBy, notes, 'manual', totalValue);
+      await refreshDeliveries();
+    } finally {
+      setActionInProgress(false);
+    }
+  };
+
+  const handleDeleteDelivery = async (id: number) => { await deleteDelivery(id); await refreshDeliveries(); };
 
   const handleMoveItem = async (id: string, newStorage: StorageLocation) => {
     await moveInwardItem(id, newStorage);
@@ -407,6 +427,13 @@ const App: React.FC = () => {
             donors={donors}
             onRefreshItems={refreshItems}
             customCategories={customCategories}
+          />
+        )}
+        {tab === 'deliveries' && (
+          <DeliveriesTab
+            deliveries={deliveries} donors={donors} volunteers={volunteers}
+            activeVolunteer={activeVolunteer}
+            onAdd={handleAddDelivery} onDelete={handleDeleteDelivery}
           />
         )}
         {tab === 'outwards' && (

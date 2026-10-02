@@ -1,5 +1,5 @@
 import { sqlExec, sqlQuery } from './sql-adapter';
-import { InwardItem, OutwardEntry, WastageEntry, CustomItem, StorageLocation, ArchivedRecord, Volunteer, Donor } from '../types';
+import { InwardItem, OutwardEntry, WastageEntry, CustomItem, StorageLocation, ArchivedRecord, Volunteer, Donor, Delivery } from '../types';
 
 const esc = (s: string) => s.replace(/'/g, "''");
 
@@ -94,6 +94,13 @@ async function _doInit(): Promise<void> {
         archived_date TEXT NOT NULL, outwards_json TEXT NOT NULL DEFAULT '[]',
         wastage_json TEXT NOT NULL DEFAULT '[]'
       )`,
+      `CREATE TABLE IF NOT EXISTS cf_deliveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, time TEXT NOT NULL DEFAULT '',
+        donor TEXT NOT NULL DEFAULT '', total_weight_kg REAL NOT NULL DEFAULT 0,
+        item_count INTEGER NOT NULL DEFAULT 0, received_by TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'manual',
+        total_value REAL NOT NULL DEFAULT 0
+      )`,
     ];
     for (const sql of tables) {
       await safeSqlExec(sql);
@@ -112,6 +119,14 @@ async function _doInit(): Promise<void> {
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL,
     colour TEXT NOT NULL DEFAULT '#6b7280'
   )`);
+
+  await safeSqlExec(`CREATE TABLE IF NOT EXISTS cf_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, time TEXT NOT NULL DEFAULT '',
+      donor TEXT NOT NULL DEFAULT '', total_weight_kg REAL NOT NULL DEFAULT 0,
+      item_count INTEGER NOT NULL DEFAULT 0, received_by TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'manual',
+      total_value REAL NOT NULL DEFAULT 0
+    )`);
 }
 
 // ========== ID GENERATION ==========
@@ -543,6 +558,79 @@ export async function importCustomCategories(csv: string): Promise<number> {
   return items.length;
 }
 
+// ========== DELIVERIES ==========
+
+export async function loadDeliveries(): Promise<Delivery[]> {
+  const rows = await sqlQuery(`SELECT * FROM cf_deliveries ORDER BY id DESC`);
+  return rows.map((r: Record<string, unknown>) => ({
+    id: r.id as number,
+    date: r.date as string,
+    time: (r.time as string) || '',
+    donor: (r.donor as string) || '',
+    total_weight_kg: (r.total_weight_kg as number) || 0,
+    item_count: (r.item_count as number) || 0,
+    received_by: (r.received_by as string) || '',
+    notes: (r.notes as string) || '',
+    source: (r.source as string) || 'manual',
+    total_value: (r.total_value as number) || 0,
+  }));
+}
+
+export async function addDelivery(
+  date: string, time: string, donor: string, totalWeightKg: number, itemCount: number,
+  receivedBy: string, notes: string, source: string = 'manual', totalValue: number = 0
+): Promise<void> {
+  const capDonor = capitalise(donor.trim());
+  await safeSqlExec(`
+    INSERT INTO cf_deliveries (date, time, donor, total_weight_kg, item_count, received_by, notes, source, total_value)
+    VALUES ('${esc(date)}', '${esc(time)}', '${esc(capDonor)}', ${Number(totalWeightKg) || 0}, ${Math.round(Number(itemCount) || 0)}, '${esc(receivedBy)}', '${esc(notes)}', '${esc(source)}', ${Number(totalValue) || 0})
+  `);
+}
+
+export async function deleteDelivery(id: number): Promise<void> {
+  await safeSqlExec(`DELETE FROM cf_deliveries WHERE id = ${id}`);
+}
+
+// CSV: Date,Time,Donor,Weight(kg),Items,Received By,Notes,Source,Value
+export async function importDeliveries(csv: string): Promise<number> {
+  const lines = csv.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return 0;
+  const hasHeader = lines[0].toLowerCase().includes('date') || lines[0].toLowerCase().includes('donor');
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+  const today = new Date().toLocaleDateString('en-GB');
+
+  const items: { date: string; time: string; donor: string; weight: number; count: number; by: string; notes: string; source: string; value: number }[] = [];
+  for (const line of dataLines) {
+    const parts = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|^(?=,))/g)?.map(p => p.replace(/^"|"$/g, '').trim()) || [];
+    if (parts.length === 0) continue;
+    items.push({
+      date: parts[0] || today,
+      time: parts[1] || '',
+      donor: capitalise(parts[2] || ''),
+      weight: parseFloat(parts[3]) || 0,
+      count: parseInt(parts[4]) || 0,
+      by: (parts[5] || '').toUpperCase(),
+      notes: parts[6] || '',
+      source: parts[7] === 'foodiverse' ? 'foodiverse' : 'manual',
+      value: parseFloat(parts[8]) || 0,
+    });
+  }
+  if (items.length === 0) return 0;
+
+  const BATCH = 10;
+  for (let i = 0; i < items.length; i += BATCH) {
+    const chunk = items.slice(i, i + BATCH);
+    const values = chunk.map(it =>
+      `('${esc(it.date)}', '${esc(it.time)}', '${esc(it.donor)}', ${it.weight}, ${it.count}, '${esc(it.by)}', '${esc(it.notes)}', '${esc(it.source)}', ${it.value})`
+    ).join(',\n');
+    await safeSqlExec(`
+      INSERT INTO cf_deliveries (date, time, donor, total_weight_kg, item_count, received_by, notes, source, total_value)
+      VALUES ${values}
+    `);
+  }
+  return items.length;
+}
+
 // ========== BULK INWARDS → OUTWARDS ==========
 
 export async function bulkInwardsToOutwards(recordedBy: string = ''): Promise<number> {
@@ -690,6 +778,7 @@ export async function clearEverything(): Promise<void> {
   await safeSqlExec(`DELETE FROM cf_custom_items`);
   await safeSqlExec(`DELETE FROM cf_volunteers`);
   await safeSqlExec(`DELETE FROM cf_donors`);
+  await safeSqlExec(`DELETE FROM cf_deliveries`);
 }
 
 // ========== IMPORT FROM CSV (BATCHED) ==========
