@@ -466,17 +466,30 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                 <option value="stockcheck">📋 Stock Check</option>
               </select>
             </div>
-            {(reportType === 'donor' || reportType === 'deliveries') && (
+            {(reportType === 'donor' || reportType === 'deliveries') && (() => {
+              // For deliveries, merge saved donors with unique donor names from delivery records
+              const donorNames = [...donors].map(d => d.name);
+              if (reportType === 'deliveries') {
+                for (const dl of deliveries) {
+                  const dn = (dl.donor || '').trim();
+                  if (dn && !donorNames.some(n => n.toLowerCase() === dn.toLowerCase())) {
+                    donorNames.push(dn);
+                  }
+                }
+              }
+              donorNames.sort((a, b) => a.localeCompare(b));
+              return (
               <div className="flex-1 min-w-[160px]">
                 <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Users size={10} /> Donor</label>
                 <select className="select select-bordered select-xs w-full" value={selectedDonor} onChange={e => setSelectedDonor(e.target.value)}>
                   <option value="">{reportType === 'deliveries' ? 'All donors' : 'Select a donor...'}</option>
-                  {[...donors].sort((a, b) => a.name.localeCompare(b.name)).map(d => (
-                    <option key={d.id} value={d.name}>{d.name}</option>
+                  {donorNames.map(name => (
+                    <option key={name} value={name}>{name}</option>
                   ))}
                 </select>
               </div>
-            )}
+              );
+            })()}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
