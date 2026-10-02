@@ -92,7 +92,20 @@ export interface ArchivedRecord {
   unit_value: number;
 }
 
-export type TabName = 'dashboard' | 'inwards' | 'outwards' | 'wastage' | 'items' | 'reports' | 'history' | 'admin';
+export interface Delivery {
+  id: number;
+  date: string;
+  time: string;
+  donor: string;
+  total_weight_kg: number;
+  item_count: number;
+  received_by: string;
+  notes: string;
+  source: string;
+  total_value: number;
+}
+
+export type TabName = 'dashboard' | 'inwards' | 'deliveries' | 'outwards' | 'wastage' | 'items' | 'reports' | 'history' | 'admin';
 
 export const CATEGORIES = [
   'Bakery', 'Chilled', 'Condiments', 'Dairy', 'Drinks', 'Dry Goods',
