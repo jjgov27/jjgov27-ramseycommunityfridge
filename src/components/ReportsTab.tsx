@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { FileBarChart, Download, Calendar, Filter, TrendingUp, AlertTriangle, PackagePlus, Users, ListPlus, Database, Layers, Search } from 'lucide-react';
-import { WastageEntry, InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS, CustomItem, ArchivedRecord, Donor, CustomCategory, getAllCategories, getCategoryHexColour } from '../types';
+import { FileBarChart, Download, Calendar, Filter, TrendingUp, AlertTriangle, PackagePlus, Users, ListPlus, Database, Layers, Search, Package } from 'lucide-react';
+import { WastageEntry, InwardItem, OutwardEntry, StorageLocation, CATEGORY_COLOURS, CustomItem, ArchivedRecord, Donor, CustomCategory, Delivery, getAllCategories, getCategoryHexColour } from '../types';
 
 interface Props {
   inwards: InwardItem[];
@@ -12,6 +12,7 @@ interface Props {
   customItems: CustomItem[];
   donors: Donor[];
   customCategories: CustomCategory[];
+  deliveries: Delivery[];
 }
 
 const parseDateStr = (d: string): Date | null => {
@@ -33,14 +34,14 @@ const toISODate = (d: Date) => d.toISOString().split('T')[0];
 const kgToLbs = (kg: number) => (kg * 2.20462).toFixed(1);
 const isMeat = (category: string) => category === 'Meat';
 
-export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storage, onStorageChange, archive, customItems, donors, customCategories }) => {
+export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storage, onStorageChange, archive, customItems, donors, customCategories, deliveries }) => {
   const today = new Date();
   const thirtyDaysAgo = new Date(today);
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   const [startDate, setStartDate] = useState(toISODate(thirtyDaysAgo));
   const [endDate, setEndDate] = useState(toISODate(today));
-  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly' | 'custom' | 'stockcheck' | 'donor'>('inwards');
+  const [reportType, setReportType] = useState<'inwards' | 'wastage' | 'outwards' | 'all' | 'monthly' | 'custom' | 'stockcheck' | 'donor' | 'deliveries'>('inwards');
   const [selectedDonor, setSelectedDonor] = useState('');
   const [itemSearch, setItemSearch] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -416,7 +417,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
   return (
     <div className="space-y-3">
       {/* Storage toggle - hidden for Full Report */}
-      {!isFullReport && reportType !== 'custom' && reportType !== 'stockcheck' && (
+      {!isFullReport && reportType !== 'custom' && reportType !== 'stockcheck' && reportType !== 'deliveries' && (
         <div className="flex items-center gap-2">
           <button className={`btn btn-xs ${storage === 'fridge' ? 'btn-success' : 'btn-ghost'}`} onClick={() => onStorageChange('fridge')}>🧊 Fridge</button>
           <button className={`btn btn-xs ${storage === 'freezer' ? 'btn-info' : 'btn-ghost'}`} onClick={() => onStorageChange('freezer')}>❄️ Freezer</button>
@@ -459,16 +460,17 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                 <option value="wastage">🗑️ Wastage Only</option>
                 <option value="all">📊 Full Report (All)</option>
                 <option value="donor">🏢 Donor Report</option>
+                <option value="deliveries">📦 Deliveries</option>
                 <option value="monthly">🥧 Monthly Pie Charts</option>
                 <option value="custom">📋 Custom Report Builder</option>
                 <option value="stockcheck">📋 Stock Check</option>
               </select>
             </div>
-            {reportType === 'donor' && (
+            {(reportType === 'donor' || reportType === 'deliveries') && (
               <div className="flex-1 min-w-[160px]">
                 <label className="text-xs font-medium text-violet-700 flex items-center gap-1 mb-1"><Users size={10} /> Donor</label>
                 <select className="select select-bordered select-xs w-full" value={selectedDonor} onChange={e => setSelectedDonor(e.target.value)}>
-                  <option value="">Select a donor...</option>
+                  <option value="">{reportType === 'deliveries' ? 'All donors' : 'Select a donor...'}</option>
                   {[...donors].sort((a, b) => a.name.localeCompare(b.name)).map(d => (
                     <option key={d.id} value={d.name}>{d.name}</option>
                   ))}
@@ -478,7 +480,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && reportType !== 'donor' && (
+            {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && reportType !== 'donor' && reportType !== 'deliveries' && (
               <button className="btn btn-xs btn-primary gap-1" onClick={downloadCSV}>
                 <Download size={12} /> Download CSV
               </button>
@@ -488,7 +490,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                 <Layers size={12} /> {groupByItem ? '📊 Grouped' : '📋 Detailed'}
               </button>
             )}
-            {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && (
+            {reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && reportType !== 'deliveries' && (
               <button
                 className={`btn btn-xs gap-1 ${selectedCats.size > 0 ? 'btn-warning' : 'btn-ghost border-violet-300'}`}
                 onClick={() => setCatFilterOpen(!catFilterOpen)}
@@ -501,7 +503,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                 <Search size={12} className="text-violet-600" />
                 <input
                   type="text"
-                  placeholder="Search items..."
+                  placeholder={reportType === 'deliveries' ? 'Search donor / notes...' : 'Search items...'}
                   className={`input input-bordered input-xs w-40 ${itemSearch.trim() ? 'border-amber-500 bg-amber-50' : ''}`}
                   value={itemSearch}
                   onChange={e => setItemSearch(e.target.value)}
@@ -514,7 +516,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           </div>
 
           {/* Category filter panel */}
-          {catFilterOpen && reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && (
+          {catFilterOpen && reportType !== 'monthly' && reportType !== 'custom' && reportType !== 'stockcheck' && reportType !== 'deliveries' && (
             <div className="bg-white border border-violet-200 rounded-lg p-2 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-semibold text-violet-700">Mode:</span>
@@ -1972,6 +1974,276 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
                           <td className="text-center">{donorTotalItems}</td>
                           <td className="text-center">{donorTotalQty}</td>
                           <td className="text-right">£{donorTotalValue.toFixed(2)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ===== DELIVERIES REPORT ===== */}
+      {reportType === 'deliveries' && (() => {
+        const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const csvQ = (s: any) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+
+        // Date range filter (deliveries have no storage / category)
+        const dStart = startDate ? new Date(startDate) : null;
+        const dEnd = endDate ? new Date(endDate) : null;
+        if (dEnd) dEnd.setHours(23, 59, 59);
+        const vStart = dStart && !isNaN(dStart.getTime()) ? dStart : null;
+        const vEnd = dEnd && !isNaN(dEnd.getTime()) ? dEnd : null;
+        const q = itemSearch.trim().toLowerCase();
+        const sLow = selectedDonor.trim().toLowerCase();
+
+        const filteredDeliveries = deliveries.filter(dl => {
+          const d = parseDateStr(dl.date);
+          if (!d) return false;
+          if (vStart && d < vStart) return false;
+          if (vEnd && d > vEnd) return false;
+          if (sLow) {
+            const dLow = (dl.donor || '').trim().toLowerCase();
+            if (!(dLow.includes(sLow) || sLow.includes(dLow))) return false;
+          }
+          if (q) {
+            const inDonor = (dl.donor || '').toLowerCase().includes(q);
+            const inNotes = (dl.notes || '').toLowerCase().includes(q);
+            if (!inDonor && !inNotes) return false;
+          }
+          return true;
+        }).sort((a, b) => {
+          const da = parseDateStr(a.date)?.getTime() || 0;
+          const db = parseDateStr(b.date)?.getTime() || 0;
+          if (db !== da) return db - da;
+          return (b.time || '').localeCompare(a.time || '');
+        });
+
+        const delTotalCount = filteredDeliveries.length;
+        const delTotalWeight = filteredDeliveries.reduce((s, dl) => s + (dl.total_weight_kg || 0), 0);
+        const delTotalItems = filteredDeliveries.reduce((s, dl) => s + (dl.item_count || 0), 0);
+        const delTotalValue = filteredDeliveries.reduce((s, dl) => s + (dl.total_value || 0), 0);
+
+        const donorMap: Record<string, { name: string; count: number; weight: number; items: number; value: number }> = {};
+        filteredDeliveries.forEach(dl => {
+          const name = (dl.donor || '').trim() || '(No donor)';
+          if (!donorMap[name]) donorMap[name] = { name, count: 0, weight: 0, items: 0, value: 0 };
+          donorMap[name].count++;
+          donorMap[name].weight += dl.total_weight_kg || 0;
+          donorMap[name].items += dl.item_count || 0;
+          donorMap[name].value += dl.total_value || 0;
+        });
+        const donorRows = Object.values(donorMap).sort((a, b) => a.name.localeCompare(b.name));
+        const sourceLabel = (s: string) => s === 'foodiverse' ? 'FOODIVERSE' : 'MANUAL';
+        const donorLabel = selectedDonor ? ` — ${selectedDonor}` : '';
+
+        const downloadDeliveriesCSV = () => {
+          let csv = 'DELIVERIES REPORT\n';
+          csv += `Period,${startDate} to ${endDate}\n`;
+          if (selectedDonor) csv += `Donor,${csvQ(selectedDonor)}\n`;
+          if (itemSearch.trim()) csv += `Search,${csvQ(itemSearch.trim())}\n`;
+          csv += '\nBY DONOR\nDonor,Deliveries,Weight (kg),Weight (lbs),Items,Value (£)\n';
+          donorRows.forEach(r => {
+            csv += `${csvQ(r.name)},${r.count},${r.weight.toFixed(1)},${kgToLbs(r.weight)},${r.items},${r.value.toFixed(2)}\n`;
+          });
+          csv += `TOTAL,${delTotalCount},${delTotalWeight.toFixed(1)},${kgToLbs(delTotalWeight)},${delTotalItems},${delTotalValue.toFixed(2)}\n\n`;
+          csv += 'DELIVERIES\nDate,Time,Donor,Weight (kg),Weight (lbs),Items,Value (£),Received By,Source,Notes\n';
+          filteredDeliveries.forEach(dl => {
+            const kg = dl.total_weight_kg || 0;
+            csv += `${csvQ(dl.date)},${csvQ(dl.time)},${csvQ(dl.donor)},${kg.toFixed(1)},${kgToLbs(kg)},${dl.item_count || 0},${(dl.total_value || 0).toFixed(2)},${csvQ(dl.received_by)},${csvQ(sourceLabel(dl.source))},${csvQ(dl.notes)}\n`;
+          });
+          csv += `\nTOTALS,,,${delTotalWeight.toFixed(1)},${kgToLbs(delTotalWeight)},${delTotalItems},${delTotalValue.toFixed(2)},,,\n`;
+
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `deliveries-report${selectedDonor ? '-' + selectedDonor.replace(/\s+/g, '-') : ''}-${startDate}-to-${endDate}.csv`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        const downloadDeliveriesHTML = () => {
+          const donorRowsHtml = donorRows.map((r, idx) => `<tr style="border-bottom:1px solid #e2e8f0;${idx % 2 === 1 ? 'background:#f8fafc;' : ''}">
+              <td style="padding:5px 8px;font-weight:600;">${esc(r.name)}</td>
+              <td style="padding:5px 8px;text-align:center;">${r.count}</td>
+              <td style="padding:5px 8px;text-align:right;">${r.weight.toFixed(1)}</td>
+              <td style="padding:5px 8px;text-align:right;">${kgToLbs(r.weight)}</td>
+              <td style="padding:5px 8px;text-align:center;">${r.items}</td>
+              <td style="padding:5px 8px;text-align:right;">£${r.value.toFixed(2)}</td>
+            </tr>`).join('');
+
+          const rowsHtml = filteredDeliveries.map((dl, idx) => {
+            const kg = dl.total_weight_kg || 0;
+            return `<tr style="border-bottom:1px solid #e2e8f0;${idx % 2 === 1 ? 'background:#f8fafc;' : ''}">
+              <td style="padding:5px 8px;">${esc(dl.date)}</td>
+              <td style="padding:5px 8px;">${esc(dl.time) || '-'}</td>
+              <td style="padding:5px 8px;font-weight:600;">${esc(dl.donor) || '-'}</td>
+              <td style="padding:5px 8px;text-align:right;">${kg.toFixed(1)}</td>
+              <td style="padding:5px 8px;text-align:right;">${kgToLbs(kg)}</td>
+              <td style="padding:5px 8px;text-align:center;">${dl.item_count || 0}</td>
+              <td style="padding:5px 8px;text-align:right;">£${(dl.total_value || 0).toFixed(2)}</td>
+              <td style="padding:5px 8px;">${esc(dl.received_by) || '-'}</td>
+              <td style="padding:5px 8px;">${sourceLabel(dl.source)}</td>
+              <td style="padding:5px 8px;">${esc(dl.notes) || '-'}</td>
+            </tr>`;
+          }).join('');
+
+          const html = `<!DOCTYPE html><html><head><title>Deliveries Report${esc(donorLabel)}</title>
+            <style>
+              body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #1e293b; max-width: 1000px; margin: 0 auto; }
+              h1 { font-size: 20px; color: #6d28d9; margin-bottom: 2px; }
+              h2 { font-size: 14px; margin: 20px 0 8px; color: #7c3aed; border-bottom: 2px solid #ddd6fe; padding-bottom: 4px; }
+              .subtitle { color: #64748b; font-size: 12px; margin-bottom: 20px; }
+              .summary { display: flex; gap: 16px; margin-bottom: 16px; }
+              .summary-card { flex: 1; padding: 12px 16px; border-radius: 8px; text-align: center; border: 1px solid #ddd6fe; background: #f5f3ff; }
+              .summary-card .num { font-size: 22px; font-weight: 800; color: #6d28d9; }
+              .summary-card .label { font-size: 11px; color: #5b21b6; }
+              .summary-card .sub { font-size: 10px; color: #7c3aed; }
+              table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px; }
+              thead tr { background: #f5f3ff; border-bottom: 2px solid #7c3aed; }
+              th { text-align: left; padding: 6px 8px; font-weight: 700; }
+              tfoot tr { border-top: 2px solid #7c3aed; background: #f5f3ff; font-weight: 700; }
+              tfoot td { padding: 6px 8px; }
+              @media print { body { padding: 10px; } }
+            </style>
+          </head><body>
+            <h1>📦 Deliveries Report${esc(donorLabel)}</h1>
+            <p class="subtitle">Period: ${startDate} to ${endDate}${itemSearch.trim() ? ' | Search: ' + esc(itemSearch.trim()) : ''} | Generated ${new Date().toLocaleDateString('en-GB')}</p>
+            <div class="summary">
+              <div class="summary-card"><div class="num">${delTotalCount}</div><div class="label">Total Deliveries</div></div>
+              <div class="summary-card"><div class="num">${delTotalWeight.toFixed(1)}kg</div><div class="label">Total Weight</div><div class="sub">${kgToLbs(delTotalWeight)} lbs</div></div>
+              <div class="summary-card"><div class="num">${delTotalItems}</div><div class="label">Total Items</div></div>
+              <div class="summary-card"><div class="num">£${delTotalValue.toFixed(2)}</div><div class="label">Total Value</div></div>
+            </div>
+            <h2>By Donor</h2>
+            <table>
+              <thead><tr><th>Donor</th><th style="text-align:center;">Deliveries</th><th style="text-align:right;">Weight (kg)</th><th style="text-align:right;">Weight (lbs)</th><th style="text-align:center;">Items</th><th style="text-align:right;">Value (£)</th></tr></thead>
+              <tbody>${donorRowsHtml || '<tr><td colspan="6" style="padding:8px;color:#94a3b8;">No data</td></tr>'}</tbody>
+            </table>
+            <h2>Deliveries</h2>
+            <table>
+              <thead><tr><th>Date</th><th>Time</th><th>Donor</th><th style="text-align:right;">Weight (kg)</th><th style="text-align:right;">Weight (lbs)</th><th style="text-align:center;">Items</th><th style="text-align:right;">Value (£)</th><th>Received By</th><th>Source</th><th>Notes</th></tr></thead>
+              <tbody>${rowsHtml || '<tr><td colspan="10" style="padding:8px;color:#94a3b8;">No deliveries in this period</td></tr>'}</tbody>
+              <tfoot><tr><td colspan="3">TOTALS</td><td style="text-align:right;">${delTotalWeight.toFixed(1)}</td><td style="text-align:right;">${kgToLbs(delTotalWeight)}</td><td style="text-align:center;">${delTotalItems}</td><td style="text-align:right;">£${delTotalValue.toFixed(2)}</td><td colspan="3"></td></tr></tfoot>
+            </table>
+            <p style="text-align:center;color:#94a3b8;font-size:10px;margin-top:16px;">Generated from Ramsey Community Fridge App</p>
+          </body></html>`;
+
+          const blob = new Blob([html], { type: 'text/html' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Deliveries-Report${selectedDonor ? '-' + selectedDonor.replace(/\s+/g, '-') : ''}-${startDate}-to-${endDate}.html`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        return (
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <button className="btn btn-xs btn-primary gap-1" onClick={downloadDeliveriesHTML}>🖨️ Print</button>
+              <button className="btn btn-xs btn-secondary gap-1" onClick={downloadDeliveriesCSV}><Download size={12} /> CSV</button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="card bg-gradient-to-br from-violet-50 to-violet-100 border border-violet-200">
+                <div className="card-body p-3 text-center">
+                  <Package size={16} className="text-violet-500 mx-auto" />
+                  <p className="text-2xl font-bold text-violet-700">{delTotalCount}</p>
+                  <p className="text-xs text-violet-500">Total Deliveries</p>
+                </div>
+              </div>
+              <div className="card bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200">
+                <div className="card-body p-3 text-center">
+                  <p className="text-2xl font-bold text-blue-700">{delTotalWeight.toFixed(1)}kg</p>
+                  <p className="text-xs text-blue-500">Total Weight</p>
+                  <p className="text-xs text-blue-400">⚖️ {kgToLbs(delTotalWeight)}lbs</p>
+                </div>
+              </div>
+              <div className="card bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-200">
+                <div className="card-body p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-700">{delTotalItems}</p>
+                  <p className="text-xs text-amber-500">Total Items</p>
+                </div>
+              </div>
+              <div className="card bg-gradient-to-br from-green-50 to-green-100 border border-green-200">
+                <div className="card-body p-3 text-center">
+                  <p className="text-2xl font-bold text-green-700">£{delTotalValue.toFixed(2)}</p>
+                  <p className="text-xs text-green-500">Total Value</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="text-xs font-bold text-orange-700">🏢 By Donor</p>
+                {donorRows.length === 0 ? (
+                  <p className="text-xs text-base-content/40 text-center py-4">No deliveries in this period</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {donorRows.map(r => (
+                      <div key={r.name} className="rounded-lg border border-orange-200 bg-orange-50 p-2">
+                        <p className="text-xs font-bold text-orange-800 truncate">{r.name}</p>
+                        <div className="grid grid-cols-4 gap-1 mt-1 text-center">
+                          <div><p className="text-sm font-bold text-orange-700">{r.count}</p><p className="text-[9px] text-orange-500">Deliveries</p></div>
+                          <div><p className="text-sm font-bold text-blue-700">{r.weight.toFixed(1)}kg</p><p className="text-[9px] text-blue-500">{kgToLbs(r.weight)}lbs</p></div>
+                          <div><p className="text-sm font-bold text-amber-700">{r.items}</p><p className="text-[9px] text-amber-500">Items</p></div>
+                          <div><p className="text-sm font-bold text-green-700">£{r.value.toFixed(2)}</p><p className="text-[9px] text-green-500">Value</p></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 shadow-sm">
+              <div className="card-body p-3 space-y-2">
+                <p className="text-xs font-bold text-violet-700">📦 Deliveries Report{donorLabel}</p>
+                {filteredDeliveries.length === 0 ? (
+                  <p className="text-xs text-base-content/40 text-center py-4">No deliveries in this period</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table table-xs w-full">
+                      <thead>
+                        <tr className="text-[10px]">
+                          <th>Date</th><th>Time</th><th>Donor</th><th>Weight (kg)</th><th>Weight (lbs)</th><th>Items</th><th>Value (£)</th><th>Received By</th><th>Source</th><th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredDeliveries.map(dl => {
+                          const kg = dl.total_weight_kg || 0;
+                          return (
+                            <tr key={dl.id} className="text-[10px]">
+                              <td>{dl.date}</td>
+                              <td>{dl.time || '-'}</td>
+                              <td className="font-medium">{dl.donor || '-'}</td>
+                              <td>{kg.toFixed(1)}</td>
+                              <td>{kgToLbs(kg)}</td>
+                              <td>{dl.item_count || 0}</td>
+                              <td>£{(dl.total_value || 0).toFixed(2)}</td>
+                              <td>{dl.received_by || '-'}</td>
+                              <td>
+                                {dl.source === 'foodiverse'
+                                  ? <span className="text-[9px] px-1.5 py-0.5 rounded-full border bg-purple-100 text-purple-800 border-purple-300 whitespace-nowrap">🟣 FOODIVERSE</span>
+                                  : <span className="text-[9px] px-1.5 py-0.5 rounded-full border bg-green-100 text-green-800 border-green-300 whitespace-nowrap">🟢 MANUAL</span>}
+                              </td>
+                              <td>{dl.notes || '-'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="text-[10px] font-bold border-t-2">
+                          <td colSpan={3}>TOTALS</td>
+                          <td>{delTotalWeight.toFixed(1)}</td>
+                          <td>{kgToLbs(delTotalWeight)}</td>
+                          <td>{delTotalItems}</td>
+                          <td>£{delTotalValue.toFixed(2)}</td>
+                          <td colSpan={3}></td>
                         </tr>
                       </tfoot>
                     </table>
