@@ -303,6 +303,7 @@ interface Props {
     donor: string; bestBefore: string; storage: StorageLocation;
     enteredBy: string; date: string; unitValue: number;
   }>) => Promise<number>;
+  onAddDelivery?: (date: string, time: string, donor: string, weightKg: number, itemCount: number, receivedBy: string, notes: string, totalValue: number) => Promise<void>;
   activeVolunteer: string;
   isFridge: boolean;
   donors: Array<{ id: number; name: string }>;
@@ -311,7 +312,7 @@ interface Props {
   onAddItem?: (name: string, category: string) => void;  // callback to update parent's custom items list
 }
 
-export const ImportInwards: React.FC<Props> = ({ onBulkAdd, activeVolunteer, isFridge, donors, itemNames, itemCategories, onAddItem }) => {
+export const ImportInwards: React.FC<Props> = ({ onBulkAdd, onAddDelivery, activeVolunteer, isFridge, donors, itemNames, itemCategories, onAddItem }) => {
   /* Apply fuzzy matching to parsed items against existing item names.
      When matched, also pull through the correct category from the items list. */
   const applyFuzzyMatch = (parsed: ImportItem[]): ImportItem[] =>
@@ -523,6 +524,28 @@ export const ImportInwards: React.FC<Props> = ({ onBulkAdd, activeVolunteer, isF
     });
 
     const count = await onBulkAdd(rows);
+
+    // Auto-create a delivery record from the Foodiverse import totals
+    if (onAddDelivery && donor.trim()) {
+      const totalWeight = sel.reduce((sum, it) => sum + (it.weight || 0), 0);
+      const totalValue = sel.reduce((sum, it) => sum + (it.value || 0), 0);
+      const totalQty = sel.reduce((sum, it) => sum + (it.qty || 0), 0);
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      try {
+        await onAddDelivery(
+          formattedDate || new Date().toLocaleDateString('en-GB'),
+          timeStr,
+          donor.trim(),
+          Math.round(totalWeight * 100) / 100,
+          totalQty,
+          activeVolunteer,
+          `Foodiverse import — ${sel.length} product lines`,
+          Math.round(totalValue * 100) / 100
+        );
+      } catch (e) { console.warn('Auto-delivery creation failed:', e); }
+    }
+
     const newMsg = newItems.length > 0 ? ` | 🆕 ${newItems.length} new item${newItems.length > 1 ? 's' : ''} added to list` : '';
     setResult(`✅ Imported ${count} items!${newMsg}`);
     setImporting(false);

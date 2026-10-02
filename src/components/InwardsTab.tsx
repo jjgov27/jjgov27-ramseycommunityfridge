@@ -123,6 +123,7 @@ interface InwardsTabProps {
   onDelete: (id: string) => void;
   onMove: (id: string, newStorage: StorageLocation) => void;
   onEdit: (id: string, fields: { item?: string; category?: string; qty_in?: number; donor?: string; best_before?: string; entered_by?: string }) => void;
+  onAddDelivery?: (date: string, time: string, donor: string, weightKg: number, itemCount: number, receivedBy: string, notes: string, totalValue: number) => Promise<void>;
   onBulkAdd: (items: Array<{
     item: string; category: string; qty: number; unit: string;
     donor: string; bestBefore: string; storage: StorageLocation;
@@ -135,7 +136,7 @@ interface InwardsTabProps {
   customCategories: CustomCategory[];
 }
 
-export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, onEdit, onBulkAdd, activeVolunteer, volunteers, donors, onRefreshItems, customCategories }) => {
+export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, storage, onStorageChange, onAdd, onDelete, onMove, onEdit, onAddDelivery, onBulkAdd, activeVolunteer, volunteers, donors, onRefreshItems, customCategories }) => {
   const allCategories = getAllCategories(customCategories);
   const [showForm, setShowForm] = useState(false);
   const [item, setItem] = useState('');
@@ -412,7 +413,7 @@ export const InwardsTab: React.FC<InwardsTabProps> = ({ inwards, customItems, st
       )}
 
       {/* Import buttons */}
-      <ImportInwards onBulkAdd={onBulkAdd} activeVolunteer={activeVolunteer} isFridge={isFridge} donors={donors} itemNames={itemNames} itemCategories={allItems} onAddItem={() => { if (onRefreshItems) onRefreshItems(); }} />
+      <ImportInwards onBulkAdd={onBulkAdd} onAddDelivery={onAddDelivery} activeVolunteer={activeVolunteer} isFridge={isFridge} donors={donors} itemNames={itemNames} itemCategories={allItems} onAddItem={() => { if (onRefreshItems) onRefreshItems(); }} />
 
       {/* Filters */}
       <div className="flex gap-2">

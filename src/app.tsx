@@ -208,6 +208,13 @@ const App: React.FC = () => {
     }
   };
 
+  const handleAddFoodiverseDelivery = async (date: string, time: string, donor: string, weightKg: number, itemCount: number, receivedBy: string, notes: string, totalValue: number) => {
+    try {
+      await addDelivery(date, time, donor, weightKg, itemCount, receivedBy, notes, 'foodiverse', totalValue);
+      await refreshDeliveries();
+    } catch (e) { console.warn('Auto-delivery creation failed:', e); }
+  };
+
   const handleDeleteDelivery = async (id: number) => { await deleteDelivery(id); await refreshDeliveries(); };
 
   const handleMoveItem = async (id: string, newStorage: StorageLocation) => {
@@ -422,6 +429,7 @@ const App: React.FC = () => {
             storage={storage} onStorageChange={setStorage}
             onAdd={handleAddInward} onDelete={handleDeleteInward}
             onMove={handleMoveItem} onEdit={handleEditInward}
+            onAddDelivery={handleAddFoodiverseDelivery}
             onBulkAdd={handleBulkAddInward}
             activeVolunteer={activeVolunteer} volunteers={volunteers}
             donors={donors}
