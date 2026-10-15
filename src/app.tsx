@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LayoutDashboard, ArrowDownToLine, ArrowUpFromLine, Trash2, ListPlus, FileBarChart, Archive, Shield, RefreshCw, User, Package } from 'lucide-react';
-import { TabName, StorageLocation, InwardItem, OutwardEntry, WastageEntry, CustomItem, ArchivedRecord, Volunteer, Donor, CustomCategory, Delivery } from './types';
+import { TabName, StorageLocation, InwardItem, OutwardEntry, WastageEntry, CustomItem, ArchivedRecord, Volunteer, Donor, CustomCategory, Delivery, normaliseDonorRecords, normaliseDonorList } from './types';
 import {
   initDB, addInward, loadInwards, addOutward, loadOutwards, addWastage, loadWastage,
   deleteOutward, deleteWastage, deleteInward, loadCustomItems, addCustomItem, deleteCustomItem,
@@ -312,6 +312,14 @@ const App: React.FC = () => {
     return count;
   };
 
+  // Reporting view: merge all Tesco donor variants into "Tesco" (data in DB unchanged)
+  const rptInwards = useMemo(() => normaliseDonorRecords(inwards as any[]) as InwardItem[], [inwards]);
+  const rptOutwards = useMemo(() => normaliseDonorRecords(outwards as any[]) as OutwardEntry[], [outwards]);
+  const rptWastage = useMemo(() => normaliseDonorRecords(wastage as any[]) as WastageEntry[], [wastage]);
+  const rptArchive = useMemo(() => normaliseDonorRecords(archive as any[]) as ArchivedRecord[], [archive]);
+  const rptDeliveries = useMemo(() => normaliseDonorRecords(deliveries as any[]) as Delivery[], [deliveries]);
+  const rptDonors = useMemo(() => normaliseDonorList(donors), [donors]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gradient-to-br from-emerald-50 to-blue-50">
@@ -417,10 +425,10 @@ const App: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-3">
         {tab === 'dashboard' && (
           <Dashboard
-            inwards={inwards} outwards={outwards} wastage={wastage}
+            inwards={rptInwards} outwards={rptOutwards} wastage={rptWastage}
             storage={storage} onStorageChange={setStorage}
             onNavigate={(t) => setTab(t)}
-            donors={donors}
+            donors={rptDonors}
           />
         )}
         {tab === 'inwards' && (
@@ -516,11 +524,11 @@ const App: React.FC = () => {
         )}
         {tab === 'reports' && (
           <ReportsTab
-            inwards={inwards} wastage={wastage} outwards={outwards}
+            inwards={rptInwards} wastage={rptWastage} outwards={rptOutwards}
             storage={storage} onStorageChange={setStorage}
-            archive={archive} customItems={customItems}
-            donors={donors} customCategories={customCategories}
-            deliveries={deliveries}
+            archive={rptArchive} customItems={customItems}
+            donors={rptDonors} customCategories={customCategories}
+            deliveries={rptDeliveries}
           />
         )}
         {tab === 'history' && (

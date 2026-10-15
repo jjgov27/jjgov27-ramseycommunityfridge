@@ -219,3 +219,27 @@ export const REFERENCE_ITEMS: Record<string, string> = {
   'Biscuits': 'Snacks',
   'Chocolate': 'Snacks',
 };
+
+/* ---- Donor name normalisation for reporting ----
+   Any donor name containing "tesco" (e.g. Tesco Via Fare Share, Tesco Superstore,
+   Tesco Express, TESCO) is reported as plain "Tesco". */
+export const normaliseDonor = (name: string | null | undefined): string => {
+  const n = (name || '').trim();
+  if (/tesco/i.test(n)) return 'Tesco';
+  return n;
+};
+export function normaliseDonorRecords<T extends { donor?: string }>(rows: T[]): T[] {
+  return (rows || []).map(r => (r && typeof r.donor === 'string' && /tesco/i.test(r.donor)) ? { ...r, donor: 'Tesco' } : r);
+}
+export const normaliseDonorList = (list: Donor[]): Donor[] => {
+  const seen = new Set<string>();
+  const out: Donor[] = [];
+  for (const d of list || []) {
+    const name = normaliseDonor(d.name);
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...d, name });
+  }
+  return out;
+};

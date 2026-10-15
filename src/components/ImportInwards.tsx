@@ -264,9 +264,7 @@ const extractDonor = (raw: string): string => {
   const m = raw.match(/Donor\s+name\s*:\s*(.+)/i);
   if (m) {
     const name = m[1].trim();
-    if (/superstore/i.test(name)) return 'Tesco Superstore';
-    if (/exp/i.test(name)) return 'Tesco Express';
-    if (/tesco/i.test(name)) return 'Tesco';
+    if (/tesco|superstore|exp/i.test(name)) return 'Tesco';
     return name;
   }
   return 'Tesco';
