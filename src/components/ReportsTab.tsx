@@ -291,7 +291,7 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
 
   // Grand totals used by tfoot rows
   const totalInValue = finalInwards.reduce((s, i) => s + (i.unit_value || 0) * (i.qty_in || 0), 0);
-  const showGroupToggle = reportType === 'inwards' || reportType === 'outwards' || reportType === 'wastage' || reportType === 'all';
+  const showGroupToggle = reportType === 'inwards' || reportType === 'outwards' || reportType === 'wastage' || reportType === 'all' || reportType === 'donor';
 
   // CSV Download
   const downloadCSV = () => {
@@ -1697,6 +1697,25 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
         const donorTotalQty = donorItems.reduce((s, i) => s + (i.qty_in || 0), 0);
         const donorTotalValue = donorItems.reduce((s, i) => s + (i.unit_value || 0) * (i.qty_in || 0), 0);
 
+        // Grouped by category -> item (totals across the period instead of per day)
+        const dgMap: Record<string, Record<string, { item: string; qty: number; times: number; value: number; units: Record<string, number> }>> = {};
+        donorItems.forEach(i => {
+          const cat = i.category || 'Other';
+          if (!dgMap[cat]) dgMap[cat] = {};
+          const key = (i.item || '').trim().toLowerCase();
+          if (!dgMap[cat][key]) dgMap[cat][key] = { item: i.item, qty: 0, times: 0, value: 0, units: {} };
+          const g = dgMap[cat][key];
+          g.qty += i.qty_in || 0;
+          g.times++;
+          g.value += (i.unit_value || 0) * (i.qty_in || 0);
+          if (i.unit) g.units[i.unit] = (g.units[i.unit] || 0) + 1;
+        });
+        const donorGrouped = Object.entries(dgMap).map(([cat, items]) => {
+          const rows = Object.values(items).map(g => ({ ...g, unit: Object.entries(g.units).sort((a, b) => b[1] - a[1])[0]?.[0] || '' }))
+            .sort((a, b) => b.qty - a.qty || a.item.localeCompare(b.item));
+          return { cat, rows, qty: rows.reduce((s, r) => s + r.qty, 0), times: rows.reduce((s, r) => s + r.times, 0), value: rows.reduce((s, r) => s + r.value, 0) };
+        }).sort((a, b) => b.qty - a.qty);
+
         const getWeekNumber = (d: Date) => {
           const onejan = new Date(d.getFullYear(), 0, 1);
           return Math.ceil((((d.getTime() - onejan.getTime()) / 86400000) + onejan.getDay() + 1) / 7);
@@ -1742,11 +1761,21 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
           csv += `Donor,"${selectedDonor}"\n`;
           csv += `Period,${startDate} to ${endDate}\n`;
           csv += 'Includes,Live + Archived data\n\n';
+          if (groupByItem) {
+            csv += 'View,Totals by Item (grouped by category)\n\n';
+            csv += 'Category,Item,Total Qty,Unit,Times Received,Value (£)\n';
+            donorGrouped.forEach(c => {
+              c.rows.forEach(r => { csv += `"${c.cat}","${r.item}",${r.qty},"${r.unit}",${r.times},${r.value > 0 ? r.value.toFixed(2) : ''}\n`; });
+              csv += `"${c.cat} SUBTOTAL",,${c.qty},,${c.times},${c.value.toFixed(2)}\n`;
+            });
+            csv += `GRAND TOTAL,,${donorTotalQty},,${donorTotalItems},${donorTotalValue.toFixed(2)}\n`;
+          } else {
           csv += 'Date,Item,Category,Qty,Unit,Value (£),Storage,Use By,Best Before\n';
           sortedDonorItems.forEach(i => {
             const val = (i.unit_value || 0) * (i.qty_in || 0);
             csv += `"${i.date_in}","${i.item}","${i.category}",${i.qty_in},"${i.unit}",${val > 0 ? val.toFixed(2) : ''},"${i.storage}","${isMeat(i.category) ? i.best_before || '' : '-'}","${isMeat(i.category) ? '-' : i.best_before || ''}"\n`;
           });
+          }
           csv += `\nTotal Items,,,${donorTotalItems}\nTotal Qty,,,${donorTotalQty}\nTotal Value (£),,,${donorTotalValue.toFixed(2)}\n\n`;
 
           csv += 'WEEKLY BREAKDOWN\nWeek,Items,Qty,Value (£)\n';
@@ -1781,6 +1810,17 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               <td style="padding:5px 8px;">${isMeat(i.category) ? '-' : i.best_before || '-'}</td>
             </tr>`;
           }).join('');
+
+          const groupedHtml = donorGrouped.map(c => `
+            <tr style="background:#fff7ed;"><td colspan="5" style="padding:6px 8px;font-weight:800;color:#c2410c;">${c.cat}</td></tr>
+            ${c.rows.map((r, idx) => `<tr style="border-bottom:1px solid #e2e8f0;${idx % 2 === 1 ? 'background:#f8fafc;' : ''}">
+              <td style="padding:5px 8px 5px 20px;font-weight:600;">${r.item}</td>
+              <td style="padding:5px 8px;text-align:center;font-weight:700;">${r.qty}</td>
+              <td style="padding:5px 8px;">${r.unit}</td>
+              <td style="padding:5px 8px;text-align:center;">${r.times}</td>
+              <td style="padding:5px 8px;text-align:right;">${r.value > 0 ? '£' + r.value.toFixed(2) : '-'}</td>
+            </tr>`).join('')}
+            <tr style="border-top:1px solid #fdba74;font-weight:700;"><td style="padding:5px 8px;text-align:right;">${c.cat} subtotal</td><td style="padding:5px 8px;text-align:center;">${c.qty}</td><td></td><td style="padding:5px 8px;text-align:center;">${c.times}</td><td style="padding:5px 8px;text-align:right;">£${c.value.toFixed(2)}</td></tr>`).join('');
 
           const weeklyRowsHtml = weeklyRows.map(([, w]) => `<tr style="border-bottom:1px solid #e2e8f0;">
               <td style="padding:5px 8px;">${w.label}</td>
@@ -1821,11 +1861,16 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
               <div class="summary-card"><div class="num">${donorTotalQty}</div><div class="label">Total Quantity</div></div>
               <div class="summary-card"><div class="num">£${donorTotalValue.toFixed(2)}</div><div class="label">Total Value</div></div>
             </div>
-            <h2>Items Received</h2>
+            ${groupByItem ? `<h2>Items Received — Totals by Item</h2>
+            <table>
+              <thead><tr><th>Item</th><th style="text-align:center;">Total Qty</th><th>Unit</th><th style="text-align:center;">Times Received</th><th style="text-align:right;">Value (£)</th></tr></thead>
+              <tbody>${groupedHtml || '<tr><td colspan="5" style="padding:8px;color:#94a3b8;">No items in this period</td></tr>'}</tbody>
+              <tfoot><tr><td>GRAND TOTAL</td><td style="text-align:center;">${donorTotalQty}</td><td></td><td style="text-align:center;">${donorTotalItems}</td><td style="text-align:right;">£${donorTotalValue.toFixed(2)}</td></tr></tfoot>
+            </table>` : `<h2>Items Received</h2>
             <table>
               <thead><tr><th>Date</th><th>Item</th><th>Category</th><th>Qty</th><th>Unit</th><th>Value (£)</th><th>Storage</th><th>Use By</th><th>Best Before</th></tr></thead>
               <tbody>${itemsRows || '<tr><td colspan="9" style="padding:8px;color:#94a3b8;">No items in this period</td></tr>'}</tbody>
-            </table>
+            </table>`}
             <h2>Weekly Breakdown</h2>
             <table>
               <thead><tr><th>Week</th><th style="text-align:center;">Items</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Value (£)</th></tr></thead>
@@ -1889,9 +1934,50 @@ export const ReportsTab: React.FC<Props> = ({ inwards, wastage, outwards, storag
 
             <div className="card bg-base-100 border border-base-300 shadow-sm">
               <div className="card-body p-3 space-y-2">
-                <p className="text-xs font-bold text-orange-700">🏢 {selectedDonor} — Items Received</p>
+                <p className="text-xs font-bold text-orange-700">🏢 {selectedDonor} — Items Received {groupByItem ? '(Totals by Item)' : '(Line by Line)'}</p>
                 {sortedDonorItems.length === 0 ? (
                   <p className="text-xs text-base-content/40 text-center py-4">No items from this donor in this period</p>
+                ) : groupByItem ? (
+                  <div className="overflow-x-auto">
+                    <table className="table table-xs w-full">
+                      <thead>
+                        <tr className="text-[10px]"><th>Item</th><th className="text-center">Total Qty</th><th>Unit</th><th className="text-center">Times Received</th><th className="text-right">Value (£)</th></tr>
+                      </thead>
+                      <tbody>
+                        {donorGrouped.map(c => {
+                          const catCls = CATEGORY_COLOURS[c.cat] || 'bg-gray-100 text-gray-700';
+                          return (
+                            <React.Fragment key={c.cat}>
+                              <tr className="bg-orange-50"><td colSpan={5}><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${catCls}`}>{c.cat}</span></td></tr>
+                              {c.rows.map(r => (
+                                <tr key={c.cat + r.item} className="text-[10px]">
+                                  <td className="font-medium pl-5">{r.item}</td>
+                                  <td className="text-center font-bold">{r.qty}</td>
+                                  <td>{r.unit}</td>
+                                  <td className="text-center">{r.times}</td>
+                                  <td className="text-right">{r.value > 0 ? `£${r.value.toFixed(2)}` : '-'}</td>
+                                </tr>
+                              ))}
+                              <tr className="text-[10px] font-semibold border-t border-orange-200">
+                                <td className="text-right">{c.cat} subtotal</td>
+                                <td className="text-center">{c.qty}</td><td></td>
+                                <td className="text-center">{c.times}</td>
+                                <td className="text-right">£{c.value.toFixed(2)}</td>
+                              </tr>
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="text-[10px] font-bold border-t-2">
+                          <td>GRAND TOTAL</td>
+                          <td className="text-center">{donorTotalQty}</td><td></td>
+                          <td className="text-center">{donorTotalItems}</td>
+                          <td className="text-right">£{donorTotalValue.toFixed(2)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="table table-xs w-full">
